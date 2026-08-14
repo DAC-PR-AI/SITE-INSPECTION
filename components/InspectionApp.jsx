@@ -10,6 +10,7 @@ import {
   Compass, Ruler, HardDrive, Cloud, Gauge, Lock
 } from "lucide-react";
 import ApprovalPortal from "./ApprovalPortal";
+import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
 
 
 /* ---------------------------------------------------------------------- */
@@ -49,14 +50,14 @@ const ITEMS = [
 ];
 
 const SIGNATORIES = [
-  { key: "customer", label: "Customer Sign" },
-  { key: "siteEngineer", label: "Site Engineer" },
-  { key: "qaqc", label: "QA/QC In-Charge" },
-  { key: "projectManager", label: "Project Manager" },
-  { key: "technicalExecutive", label: "Technical Executive" },
-  { key: "managerTechnical", label: "Manager Technical" },
-  { key: "gmHug", label: "GM – HUG", subtitle: "Mr. Vijayachandar" },
-  { key: "vpHug", label: "VP – HUG", subtitle: "Mrs. Sony Dhiraj" },
+  { key: "customer", label: "Customer Sign", directSign: true },
+  { key: "siteEngineer", label: "Site Engineer", directSign: true },
+  { key: "qaqc", label: "QA/QC In-Charge", directSign: false },
+  { key: "projectManager", label: "Project Manager", directSign: false },
+  { key: "technicalExecutive", label: "Technical Executive", directSign: false },
+  { key: "managerTechnical", label: "Manager Technical", directSign: false },
+  { key: "gmHug", label: "GM – HUG", subtitle: "Mr. Vijayachandar", directSign: false },
+  { key: "vpHug", label: "VP – HUG", subtitle: "Mrs. Sony Dhiraj", directSign: false },
 ];
 
 /* ---------------------------------------------------------------------- */
@@ -71,7 +72,7 @@ function genInspectionId() {
   return `DAC-JIC-${y}${m}${day}-${rand}`;
 }
 
-function freshInspection(projectName, unitNumber, inspectionType = "IJI") {
+function freshInspection(projectName, unitNumber, inspectionType = "INTERIOR JOINT INSPECTION") {
   const now = new Date();
   return {
     projectName,
@@ -255,29 +256,69 @@ function SignatureCanvas({ onReady }) {
 
 function SignatureModal({ signatory, onClose, onSave }) {
   const apiRef = useRef(null);
+  const [signerName, setSignerName] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSave() {
+    if (apiRef.current?.isEmpty()) {
+      setError("Please draw your signature before saving.");
+      return;
+    }
+
+    const png = apiRef.current.exportPNG();
+    onSave(png, signerName.trim() || signatory.label);
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--ink)]/50 backdrop-blur-sm no-print" onMouseDown={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 relative" style={{ animation: "popin .16s ease" }} onMouseDown={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-[var(--ink-soft)] hover:text-[var(--ink)]"><X size={20} /></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print" onMouseDown={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6 relative animate-in fade-in zoom-in-95 duration-150" onMouseDown={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X size={20} /></button>
         <div className="flex items-center gap-2 mb-1">
-          <PenTool size={18} className="text-[var(--blue-600)]" />
-          <h3 className="font-display font-semibold text-lg text-[var(--ink)]">Sign as {signatory.label}</h3>
+          <PenTool size={18} className="text-blue-600" />
+          <h3 className="font-display font-bold text-lg text-slate-900">Sign as {signatory.label}</h3>
         </div>
-        {signatory.subtitle ? <p className="font-body text-sm text-[var(--ink-soft)] mb-4">{signatory.subtitle}</p> : <div className="mb-4" />}
+        {signatory.subtitle ? (
+          <p className="font-body text-xs text-slate-500 mb-4">{signatory.subtitle}</p>
+        ) : (
+          <p className="font-body text-xs text-emerald-600 mb-4">Direct On-Site Signature</p>
+        )}
 
-        <SignatureCanvas onReady={(api) => (apiRef.current = api)} />
-        <p className="font-body text-xs text-[var(--ink-soft)] mt-2">Sign above using mouse, finger, or stylus.</p>
+        {error && (
+          <div className="mb-4 text-xs font-body text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" /> {error}
+          </div>
+        )}
 
-        <div className="flex flex-wrap gap-2 mt-5">
-          <button onClick={() => apiRef.current?.undo()} className="font-body text-sm px-3 py-2 rounded-lg border border-[var(--line)] flex items-center gap-1.5 hover:bg-[var(--paper)]"><Undo2 size={15} /> Undo</button>
-          <button onClick={() => apiRef.current?.clear()} className="font-body text-sm px-3 py-2 rounded-lg border border-[var(--line)] flex items-center gap-1.5 hover:bg-[var(--paper)]"><RotateCcw size={15} /> Clear</button>
+        <div className="mb-4">
+          <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
+            Signer Name (Optional)
+          </label>
+          <input
+            value={signerName}
+            onChange={(e) => { setSignerName(e.target.value); setError(""); }}
+            placeholder={signatory.label}
+            className="w-full text-sm font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+        </div>
+
+        <div>
+          <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
+            Digital Signature <span className="text-rose-500">*</span>
+          </label>
+          <SignatureCanvas onReady={(api) => (apiRef.current = api)} />
+          <p className="font-body text-[11px] text-slate-400 mt-1.5">Sign above using finger, stylus, or mouse pointer.</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-5 items-center">
+          <button onClick={() => apiRef.current?.undo()} className="font-body text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 text-slate-700 flex items-center gap-1.5 hover:bg-slate-50"><Undo2 size={14} /> Undo</button>
+          <button onClick={() => apiRef.current?.clear()} className="font-body text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 text-slate-700 flex items-center gap-1.5 hover:bg-slate-50"><RotateCcw size={14} /> Clear</button>
           <div className="flex-1" />
-          <button onClick={onClose} className="font-body text-sm px-4 py-2 rounded-lg border border-[var(--line)] hover:bg-[var(--paper)]">Cancel</button>
+          <button onClick={onClose} className="font-body text-xs font-semibold px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700">Cancel</button>
           <button
-            onClick={() => { if (apiRef.current?.isEmpty()) return; onSave(apiRef.current.exportPNG()); }}
-            className="font-body text-sm px-4 py-2 rounded-lg bg-[var(--blue-600)] text-white flex items-center gap-1.5 hover:bg-[var(--blue-700)] shadow-sm"
+            onClick={handleSave}
+            className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-md shadow-blue-600/20"
           >
-            <Check size={15} /> Save Signature
+            <Check size={14} /> Save Signature
           </button>
         </div>
       </div>
@@ -287,36 +328,71 @@ function SignatureModal({ signatory, onClose, onSave }) {
 
 function SignatureBox({ signatory, value, onSign }) {
   const [open, setOpen] = useState(false);
+  const isSigned = !!value;
+  const isClickable = signatory.directSign === true;
+
   return (
     <>
       <div className="relative">
-        <button
-          onClick={() => setOpen(true)}
-          className={`w-full rounded-xl p-3 text-left transition-all duration-150 relative group
-            ${value ? "border border-[var(--pass)]/40 bg-[var(--pass-bg)]/40" : "border-2 border-dashed border-[var(--blue-300)] bg-[var(--blue-50)] hover:bg-[var(--blue-100)] hover:shadow-[0_0_0_3px_var(--blue-100)]"}`}
+        <div
+          onClick={() => {
+            if (isClickable && !isSigned) setOpen(true);
+          }}
+          className={`w-full rounded-2xl p-3.5 text-left transition-all duration-150 relative ${
+            isSigned
+              ? "border border-emerald-300 bg-emerald-50/60 shadow-xs cursor-default"
+              : isClickable
+              ? "border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/60 cursor-pointer group shadow-xs hover:border-blue-400"
+              : "border border-slate-200 bg-slate-100/80 cursor-not-allowed opacity-80"
+          }`}
         >
-          {value ? (
-            <>
-              <img src={value} alt={`${signatory.label} signature`} className="h-14 object-contain mb-1" />
-              <div className="flex items-center gap-1 text-xs font-body text-[var(--pass)]"><CheckCircle2 size={13} /> Signed · Click to edit</div>
-            </>
+          {isSigned ? (
+            <div className="space-y-1.5">
+              <div className="h-14 flex items-center justify-center bg-white/70 rounded-xl border border-emerald-100 p-1">
+                {value.startsWith("data:") ? (
+                  <img src={value} alt={`${signatory.label} signature`} className="h-full max-h-12 object-contain" />
+                ) : (
+                  <span className="font-body text-xs font-bold text-emerald-800">✓ Digitally Signed</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-1 text-[11px] font-body text-emerald-700 font-bold">
+                <span className="flex items-center gap-1"><CheckCircle2 size={13} className="text-emerald-600" /> Signed & Locked</span>
+                <Lock size={12} className="text-emerald-600" />
+              </div>
+            </div>
+          ) : isClickable ? (
+            <div className="flex flex-col items-center justify-center h-20 text-blue-600">
+              <PenTool size={20} className="mb-1.5 group-hover:scale-110 transition-transform" />
+              <span className="font-body text-xs font-bold">Click to Sign</span>
+              <span className="font-body text-[10px] text-blue-500 font-medium">Direct Signature</span>
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-16 text-[var(--blue-600)]">
-              <PenTool size={20} className="mb-1 group-hover:scale-110 transition-transform" />
-              <span className="font-body text-xs">Click here to sign</span>
+            <div className="flex flex-col items-center justify-center h-20 text-slate-500">
+              <Lock size={18} className="mb-1.5 text-slate-400" />
+              <span className="font-body text-xs font-bold text-slate-700">Locked · Portal Sign-off</span>
+              <span className="font-body text-[10px] text-slate-500">Authorized via Portal Only</span>
             </div>
           )}
-        </button>
-        <div className="mt-1.5">
-          <p className="font-body text-xs font-semibold text-[var(--ink)]">{signatory.label}{signatory.required && <span className="text-[var(--fail)]"> *</span>}</p>
-          {signatory.subtitle && <p className="font-body text-[11px] text-[var(--ink-soft)]">{signatory.subtitle}</p>}
+        </div>
+        <div className="mt-2">
+          <p className="font-body text-xs font-bold text-slate-800">{signatory.label}</p>
+          {signatory.subtitle ? (
+            <p className="font-body text-[11px] text-slate-500 font-medium">{signatory.subtitle}</p>
+          ) : (
+            <p className="font-body text-[11px] text-slate-400">
+              {isClickable ? "On-site sign-off" : "Multi-level approval role"}
+            </p>
+          )}
         </div>
       </div>
-      {open && (
+      {open && isClickable && (
         <SignatureModal
           signatory={signatory}
           onClose={() => setOpen(false)}
-          onSave={(dataUrl) => { onSign(signatory.key, dataUrl); setOpen(false); }}
+          onSave={(dataUrl, name) => {
+            onSign(signatory.key, dataUrl, name);
+            setOpen(false);
+          }}
         />
       )}
     </>
@@ -627,13 +703,20 @@ function MatrixOverview({ data, updateCell, onJump }) {
   );
 }
 
+const INSPECTION_TYPES = [
+  "INTERIOR JOINT INSPECTION",
+  "INTERIOR JOINT INSPECTION RE-CHECK",
+  "FINAL JOINT INSPECTION",
+  "FINAL JOINT INSPECTION RE-CHECK",
+];
+
 /* ---------------------------------------------------------------------- */
 /* Landing screen                                                          */
 /* ---------------------------------------------------------------------- */
 function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsError, backend, resuming }) {
+  const [inspectionType, setInspectionType] = useState("");
   const [project, setProject] = useState("");
   const [unit, setUnit] = useState("");
-  const [inspectionType, setInspectionType] = useState("");
   const [query, setQuery] = useState("");
   const [showDrop, setShowDrop] = useState(false);
   const [showResume, setShowResume] = useState(false);
@@ -644,6 +727,15 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [verifyingPin, setVerifyingPin] = useState(false);
+
+  // Portal Gateway modal states
+  const [showPortalModal, setShowPortalModal] = useState(false);
+  const [portalRole, setPortalRole] = useState("Admin");
+  const [portalName, setPortalName] = useState("Administrator");
+  const [portalPin, setPortalPin] = useState("");
+  const [portalError, setPortalError] = useState("");
+  const [verifyingPortalPin, setVerifyingPortalPin] = useState(false);
 
   useEffect(() => {
     setId(genInspectionId());
@@ -653,21 +745,74 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   }, []);
 
   const handleStartClick = () => {
-    if (!project || !unit || !inspectionType) return;
+    if (!inspectionType || !project || !unit) return;
     setPassword("");
     setPasswordError("");
     setShowPasswordModal(true);
   };
 
-  const handlePasswordSubmit = (e) => {
+  const handlePasswordSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (password === "1818") {
-      setShowPasswordModal(false);
-      setPassword("");
-      setPasswordError("");
-      onStart(project, unit, inspectionType, id);
-    } else {
-      setPasswordError("Incorrect password. Please try again.");
+    if (!password || password.trim().length !== 6) {
+      setPasswordError("Please enter the 6-digit password.");
+      return;
+    }
+
+    setVerifyingPin(true);
+    setPasswordError("");
+
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "Start Inspection", pin: password.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const verifiedPin = password.trim();
+        setShowPasswordModal(false);
+        setPassword("");
+        setPasswordError("");
+        onStart(project, unit, inspectionType, id, verifiedPin);
+      } else {
+        setPasswordError(data.error || "Incorrect password. Please try again.");
+      }
+    } catch {
+      setPasswordError("Authentication failed. Please check your connection.");
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
+
+  const handleOpenPortalSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!portalPin || portalPin.trim().length !== 6) {
+      setPortalError("Please enter the 6-digit password.");
+      return;
+    }
+
+    setVerifyingPortalPin(true);
+    setPortalError("");
+
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: portalRole, pin: portalPin.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setShowPortalModal(false);
+        setPortalPin("");
+        setPortalError("");
+        onOpenPortal({ role: portalRole, userName: portalName.trim() || portalRole });
+      } else {
+        setPortalError(data.error || `Incorrect 6-digit password for ${portalRole}.`);
+      }
+    } catch (err) {
+      setPortalError(err.message || `Authentication failed for ${portalRole}.`);
+    } finally {
+      setVerifyingPortalPin(false);
     }
   };
 
@@ -746,92 +891,106 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
               </div>
             )}
 
-            <div className="bg-white rounded-2xl border border-[var(--line)] shadow-[var(--shadow-md)] p-5 space-y-4 relative tick">
+            <div className="bg-white rounded-3xl border border-[var(--line)] shadow-[var(--shadow-md)] p-6 space-y-4 relative tick">
+              {/* Field 1: Inspection Type (Required and Placed Before Project/Unit) */}
               <div>
-                <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 block">Project name</label>
+                <label className="font-body text-xs font-bold text-slate-800 mb-1.5 block">
+                  Inspection Type <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={inspectionType}
+                  onChange={(e) => setInspectionType(e.target.value)}
+                  className="w-full text-xs sm:text-sm font-body font-bold rounded-xl border border-slate-200 p-3 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-slate-800"
+                >
+                  <option value="">-- Choose Inspection Type --</option>
+                  {INSPECTION_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Field 2: Project Selection */}
+              <div>
+                <label className="font-body text-xs font-bold text-slate-800 mb-1.5 block">
+                  Project Name <span className="text-rose-500">*</span>
+                </label>
                 <div className="relative">
                   <input
                     value={project || query}
                     onChange={(e) => { setQuery(e.target.value); setProject(""); setUnit(""); setShowDrop(true); }}
                     onFocus={() => setShowDrop(true)}
-                    placeholder="Search project…"
-                    className="w-full text-sm font-body rounded-lg border border-[var(--line)] p-2.5 pl-9 focus:outline-none focus:ring-2 focus:ring-[var(--blue-300)]"
+                    placeholder="Search or choose project…"
+                    className="w-full text-sm font-body rounded-xl border border-slate-200 p-2.5 pl-9 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
                   />
-                  <Search size={15} className="absolute left-3 top-3 text-[var(--ink-soft)]" />
+                  <Search size={15} className="absolute left-3 top-3 text-slate-400" />
                   {showDrop && !project && filteredProjects.length > 0 && (
-                    <div className="absolute z-20 top-full mt-1 w-full bg-white border border-[var(--line)] rounded-lg shadow-lg overflow-hidden">
+                    <div className="absolute z-20 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto">
                       {filteredProjects.map((p) => (
-                        <button key={p} onClick={() => { setProject(p); setQuery(p); setShowDrop(false); }} className="w-full text-left px-3 py-2 text-sm font-body hover:bg-[var(--blue-50)]">{p}</button>
+                        <button key={p} onClick={() => { setProject(p); setQuery(p); setShowDrop(false); }} className="w-full text-left px-3.5 py-2.5 text-xs sm:text-sm font-body hover:bg-blue-50 transition-colors">{p}</button>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* Field 3: Unit Selection */}
               <div>
-                <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 block">Unit number</label>
+                <label className="font-body text-xs font-bold text-slate-800 mb-1.5 block">
+                  Unit Number <span className="text-rose-500">*</span>
+                </label>
                 <select value={unit} onChange={(e) => setUnit(e.target.value)} disabled={!project}
-                  className="w-full text-sm font-body rounded-lg border border-[var(--line)] p-2.5 bg-white disabled:bg-[var(--paper)] disabled:text-[var(--ink-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--blue-300)]">
-                  <option value="">{project ? "Select unit" : "Choose a project first"}</option>
+                  className="w-full text-sm font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                  <option value="">{project ? "Select unit number" : "Choose a project first"}</option>
                   {(projects[project] || []).map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
 
-              <div>
-                <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 block">Type of Inspection <span className="text-rose-500">*</span></label>
-                <select
-                  value={inspectionType}
-                  onChange={(e) => setInspectionType(e.target.value)}
-                  className="w-full text-sm font-body font-semibold rounded-lg border border-[var(--line)] p-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--blue-300)]"
-                >
-                  <option value="">Select Inspection Type</option>
-                  <option value="IJI">IJI</option>
-                  <option value="RE CHECK">RE CHECK</option>
-                  <option value="FJI">FJI</option>
-                  <option value="FJI RE CHECK">FJI RE CHECK</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>
-                  <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 flex items-center gap-1"><CalendarDays size={12} /> Date</label>
-                  <div suppressHydrationWarning className="font-mono text-sm rounded-lg border border-[var(--line)] p-2.5 bg-[var(--paper)] text-[var(--ink-soft)]">{nowDate || "Loading…"}</div>
+                  <label className="font-body text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1"><CalendarDays size={12} /> Date</label>
+                  <div suppressHydrationWarning className="font-mono text-xs rounded-xl border border-slate-200 p-2.5 bg-slate-50 text-slate-600">{nowDate || "Loading…"}</div>
                 </div>
                 <div>
-                  <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 flex items-center gap-1"><Clock size={12} /> Time</label>
-                  <div suppressHydrationWarning className="font-mono text-sm rounded-lg border border-[var(--line)] p-2.5 bg-[var(--paper)] text-[var(--ink-soft)]">{nowTime || "Loading…"}</div>
+                  <label className="font-body text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1"><Clock size={12} /> Time</label>
+                  <div suppressHydrationWarning className="font-mono text-xs rounded-xl border border-slate-200 p-2.5 bg-slate-50 text-slate-600">{nowTime || "Loading…"}</div>
                 </div>
               </div>
 
               <div>
-                <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 flex items-center gap-1"><Hash size={12} /> Inspection ID</label>
-                <div suppressHydrationWarning className="font-mono text-sm rounded-lg border border-[var(--line)] p-2.5 bg-[var(--paper)] text-[var(--blue-700)]">{id || "Generating…"}</div>
+                <label className="font-body text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1"><Hash size={12} /> Generated Inspection ID</label>
+                <div suppressHydrationWarning className="font-mono text-xs rounded-xl border border-blue-200 p-2.5 bg-blue-50/60 text-blue-700 font-bold">{id || "Generating…"}</div>
               </div>
 
-              <button disabled={!project || !unit || !inspectionType} onClick={handleStartClick}
-                className="w-full mt-1 bg-[var(--blue-600)] disabled:bg-[var(--line)] disabled:text-[var(--ink-soft)] text-white font-body font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[var(--blue-700)] hover:shadow-[var(--shadow-md)] active:scale-[0.99] transition-all shadow-sm">
+              <button disabled={!inspectionType || !project || !unit} onClick={handleStartClick}
+                className="w-full mt-2 bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-body font-bold text-sm py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-700 hover:shadow-lg shadow-blue-600/20 active:scale-[0.99] transition-all">
                 Start Inspection <ChevronRight size={16} />
               </button>
 
               <button
-                onClick={onOpenPortal}
-                className="w-full mt-2 text-sm font-body font-bold py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 flex items-center justify-center gap-2 shadow-xs transition-colors border border-slate-800"
+                onClick={() => {
+                  setPortalPin("");
+                  setPortalError("");
+                  setShowPortalModal(true);
+                }}
+                className="w-full mt-2 text-sm font-body font-bold py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 flex items-center justify-center gap-2 shadow-sm transition-colors border border-slate-800"
               >
-                <ShieldCheck size={16} className="text-blue-400" /> Open Approval Portal
+                <ShieldCheck size={16} className="text-blue-400" /> Open Approval & Admin Portal
               </button>
 
               <div className="pt-1">
                 {!showResume ? (
-                  <button onClick={() => setShowResume(true)} className="w-full text-sm font-body font-medium py-2.5 rounded-xl border border-[var(--blue-300)] text-[var(--blue-700)] hover:bg-[var(--blue-50)] flex items-center justify-center gap-1.5">
-                    <ClipboardCheck size={15} /> Resume a Draft
+                  <button onClick={() => setShowResume(true)} className="w-full text-xs font-body font-semibold py-2.5 rounded-xl border border-blue-200 text-blue-700 hover:bg-blue-50 flex items-center justify-center gap-1.5 transition-colors">
+                    <ClipboardCheck size={14} /> Resume an Existing Draft
                   </button>
                 ) : (
                   <div className="flex gap-2">
                     <input value={resumeId} onChange={(e) => setResumeId(e.target.value)} placeholder="Enter Inspection ID"
-                      className="flex-1 text-sm font-mono rounded-lg border border-[var(--line)] p-2.5 focus:outline-none focus:ring-2 focus:ring-[var(--blue-300)]" />
+                      className="flex-1 text-xs font-mono rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300" />
                     <button onClick={() => onResume(resumeId.trim())} disabled={!resumeId.trim() || resuming}
-                      className="text-sm font-body font-semibold px-4 rounded-lg bg-[var(--blue-600)] text-white disabled:bg-[var(--line)] hover:bg-[var(--blue-700)] flex items-center gap-1">
-                      {resuming ? <Loader2 size={14} className="animate-spin" /> : "Load"}
+                      className="text-xs font-body font-bold px-4 rounded-xl bg-blue-600 text-white disabled:bg-slate-200 hover:bg-blue-700 flex items-center gap-1">
+                      {resuming ? <Loader2 size={13} className="animate-spin" /> : "Load"}
                     </button>
                   </div>
                 )}
@@ -840,7 +999,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 
             {backend && (
               <div className="mt-4 flex justify-center lg:justify-start">
-                <div className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full border border-[var(--line)] text-[var(--ink-soft)]">
+                <div className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full border border-slate-200 text-slate-500 bg-white/70">
                   {backend === "local" ? <HardDrive size={11} /> : <Cloud size={11} />}
                   {backend === "local" ? "Demo mode · saving locally" : "Connected · Google Sheets"}
                 </div>
@@ -851,35 +1010,38 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
       </div>
 
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--ink)]/50 backdrop-blur-sm no-print" onMouseDown={() => setShowPasswordModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 relative" style={{ animation: "popin .16s ease" }} onMouseDown={(e) => e.stopPropagation()}>
-            <button onClick={() => setShowPasswordModal(false)} className="absolute top-4 right-4 text-[var(--ink-soft)] hover:text-[var(--ink)]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print" onMouseDown={() => setShowPasswordModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 relative animate-in fade-in zoom-in-95 duration-150" onMouseDown={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowPasswordModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
               <X size={20} />
             </button>
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-[var(--blue-50)] text-[var(--blue-600)] flex items-center justify-center border border-[var(--blue-100)]">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shrink-0">
                 <Lock size={20} />
               </div>
               <div>
-                <h3 className="font-display font-semibold text-lg text-[var(--ink)]">Password Required</h3>
-                <p className="font-body text-xs text-[var(--ink-soft)]">Enter security password to start</p>
+                <h3 className="font-display font-bold text-lg text-slate-900">Start Inspection</h3>
+                <p className="font-body text-xs text-slate-500">Enter 6-digit password to begin</p>
               </div>
             </div>
 
             <form onSubmit={handlePasswordSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="font-body text-xs font-semibold text-[var(--ink)] mb-1 block">Password</label>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">6-Digit Password <span className="text-rose-500">*</span></label>
                 <input
                   type="password"
+                  maxLength={6}
+                  inputMode="numeric"
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
-                  placeholder="Enter password"
+                  placeholder="••••••"
                   autoFocus
-                  className="w-full text-sm font-body rounded-lg border border-[var(--line)] p-2.5 focus:outline-none focus:ring-2 focus:ring-[var(--blue-300)]"
+                  autoComplete="new-password"
+                  className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
                 {passwordError && (
-                  <p className="font-body text-xs text-[var(--fail)] mt-1.5 flex items-center gap-1">
-                    <AlertTriangle size={12} /> {passwordError}
+                  <p className="font-body text-xs text-rose-600 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle size={12} className="shrink-0" /> {passwordError}
                   </p>
                 )}
               </div>
@@ -888,15 +1050,116 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <button
                   type="button"
                   onClick={() => setShowPasswordModal(false)}
-                  className="font-body text-sm px-4 py-2 rounded-lg border border-[var(--line)] hover:bg-[var(--paper)] font-medium"
+                  className="font-body text-xs font-semibold px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="font-body text-sm px-4 py-2 rounded-lg bg-[var(--blue-600)] text-white hover:bg-[var(--blue-700)] shadow-sm font-semibold"
+                  disabled={verifyingPin}
+                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
                 >
-                  Continue
+                  {verifyingPin ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
+                  {verifyingPin ? "Verifying..." : "Continue"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showPortalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print" onMouseDown={() => setShowPortalModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 relative animate-in fade-in zoom-in-95 duration-150" onMouseDown={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowPortalModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
+              <X size={20} />
+            </button>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100 shrink-0">
+                <ShieldCheck size={20} />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-lg text-slate-900">Portal Role Login</h3>
+                <p className="font-body text-xs text-slate-500">Select role & enter 6-digit password</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleOpenPortalSubmit} className="mt-4 space-y-3.5">
+              <div>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
+                  Select Your Role <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={portalRole}
+                  onChange={(e) => {
+                    const r = e.target.value;
+                    setPortalRole(r);
+                    setPortalName(r === "Admin" ? "Administrator" : r);
+                    setPortalError("");
+                  }}
+                  className="w-full text-xs font-body font-bold rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+                >
+                  <option value="Admin">Admin (Full Oversight & Print)</option>
+                  <option value="QA/QC In-Charge">QA/QC In-Charge</option>
+                  <option value="Project Manager">Project Manager</option>
+                  <option value="Technical Executive">Technical Executive</option>
+                  <option value="Manager Technical">Manager Technical</option>
+                  <option value="GM – HUG">GM – HUG</option>
+                  <option value="VP – HUG">VP – HUG</option>
+                  <option value="Site Engineer">Site Engineer</option>
+                  <option value="Customer">Customer</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
+                  User / Signer Name
+                </label>
+                <input
+                  value={portalName}
+                  onChange={(e) => setPortalName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full text-xs font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+              </div>
+
+              <div>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
+                  6-Digit Role Password <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  inputMode="numeric"
+                  value={portalPin}
+                  onChange={(e) => { setPortalPin(e.target.value); setPortalError(""); }}
+                  placeholder="••••••"
+                  autoFocus
+                  autoComplete="new-password"
+                  className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                {portalError && (
+                  <p className="font-body text-xs text-rose-600 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle size={12} className="shrink-0" /> {portalError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPortalModal(false)}
+                  className="font-body text-xs font-semibold px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={verifyingPortalPin}
+                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
+                >
+                  {verifyingPortalPin ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
+                  {verifyingPortalPin ? "Verifying..." : "Unlock & Enter Portal"}
                 </button>
               </div>
             </form>
@@ -944,12 +1207,13 @@ function DashboardCards({ stats }) {
 /* ---------------------------------------------------------------------- */
 /* Main inspection form                                                    */
 /* ---------------------------------------------------------------------- */
-function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
+function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineerPasscode = "" }) {
   const [activeArea, setActiveArea] = useState(AREAS[0].key);
   const [view, setView] = useState("byArea");
   const [query, setQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const saveTimer = useRef(null);
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -990,7 +1254,7 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
         const res = await fetch("/api/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(dataRef.current),
+          body: JSON.stringify({ ...dataRef.current, passcode: siteEngineerPasscode }),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -1024,7 +1288,7 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
       const res = await fetch("/api/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, passcode: siteEngineerPasscode }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1043,7 +1307,7 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
       const res = await fetch("/api/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, passcode: siteEngineerPasscode }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1086,29 +1350,35 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/70 pb-28">
-      <ProgressBar stats={stats} />
+    <>
+      {/* Standalone Printable Document rendered for @media print */}
+      <div className="print-only">
+        <JointInspectionPrintDoc data={data} />
+      </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 space-y-6">
-        {/* Top Header & Actions */}
-        <div className="flex items-center justify-between gap-3 flex-wrap no-print bg-white/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
-          <button onClick={onBack} className="font-body text-sm font-semibold text-slate-700 flex items-center gap-2 hover:text-blue-600 bg-slate-100/80 hover:bg-blue-50 px-3.5 py-2 rounded-xl border border-slate-200/60 transition-colors">
-            <ArrowLeft size={16} /> Back to Dashboard
-          </button>
+      <div className="no-print min-h-screen bg-slate-50/70 pb-28">
+        <ProgressBar stats={stats} />
 
-          <div className="flex items-center gap-2.5">
-            <button onClick={handleManualSave} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
-              {saveState === "saving" ? <Loader2 size={14} className="animate-spin text-blue-600" /> : <Save size={14} className="text-slate-500" />}
-              <span>{saveState === "saving" ? "Saving..." : "Save Draft"}</span>
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 space-y-6">
+          {/* Top Header & Actions */}
+          <div className="flex items-center justify-between gap-3 flex-wrap no-print bg-white/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+            <button onClick={onBack} className="font-body text-sm font-semibold text-slate-700 flex items-center gap-2 hover:text-blue-600 bg-slate-100/80 hover:bg-blue-50 px-3.5 py-2 rounded-xl border border-slate-200/60 transition-colors">
+              <ArrowLeft size={16} /> Back to Dashboard
             </button>
-            <button onClick={exportJSON} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
-              <FileJson size={14} className="text-blue-600" /> Export JSON
-            </button>
-            <button onClick={() => window.print()} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
-              <FileDown size={14} className="text-indigo-600" /> Print / PDF
-            </button>
+
+            <div className="flex items-center gap-2.5">
+              <button onClick={handleManualSave} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
+                {saveState === "saving" ? <Loader2 size={14} className="animate-spin text-blue-600" /> : <Save size={14} className="text-slate-500" />}
+                <span>{saveState === "saving" ? "Saving..." : "Save Draft"}</span>
+              </button>
+              <button onClick={exportJSON} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
+                <FileJson size={14} className="text-blue-600" /> Export JSON
+              </button>
+              <button onClick={() => setShowPrintModal(true)} className="text-xs font-body font-semibold px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 shadow-xs transition-all">
+                <FileDown size={14} className="text-indigo-600" /> Print / PDF
+              </button>
+            </div>
           </div>
-        </div>
 
         {/* Customer Details Card */}
         <div className="bg-white rounded-3xl border border-slate-200/80 p-6 relative tick shadow-sm overflow-hidden">
@@ -1387,7 +1657,48 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
           </div>
         </div>
       </div>
+
+      {/* Print / PDF Preview Modal */}
+      {showPrintModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[var(--ink)]/60 backdrop-blur-sm no-print overflow-y-auto"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowPrintModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <FileDown size={18} className="text-blue-600" />
+                <span className="font-display font-bold text-sm text-slate-800">
+                  Official Joint Inspection Checklist (Print / PDF Preview)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="font-body text-xs font-bold px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                >
+                  <FileDown size={14} /> Print / Save as PDF
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(false)}
+                  className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-500 transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/60">
+              <div className="bg-white shadow-md border border-slate-200 mx-auto rounded p-2">
+                <JointInspectionPrintDoc data={data} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    </>
   );
 }
 
@@ -1395,19 +1706,75 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push }) {
 /* Submitted screen                                                        */
 /* ---------------------------------------------------------------------- */
 function SubmittedScreen({ data, onNew }) {
+  const [showPrintModal, setShowPrintModal] = useState(false);
   return (
-    <div className="min-h-screen bg-[var(--paper)] flex items-center justify-center p-6">
-      <div className="text-center max-w-sm bg-white rounded-2xl border border-[var(--line)] shadow-[var(--shadow-lg)] p-8 relative tick rise">
-        <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-[var(--pass-bg)] flex items-center justify-center ring-4 ring-[var(--pass-bg)]/50" style={{ animation: "popin .3s cubic-bezier(.2,.9,.3,1.2)" }}>
-          <CheckCircle2 size={32} className="text-[var(--pass)]" />
-        </div>
-        <p className="font-mono text-[10px] tracking-[0.2em] text-[var(--blue-600)] uppercase mb-2">Form JIC-01 · Complete</p>
-        <h1 className="font-display font-bold text-xl text-[var(--ink)] mb-1">Inspection Submitted</h1>
-        <p className="font-body text-sm text-[var(--ink-soft)] mb-1">{data.projectName} · Unit {data.unitNumber}</p>
-        <p className="font-mono text-xs text-[var(--blue-700)] bg-[var(--blue-50)] inline-block px-2 py-1 rounded-md mb-6">{data.inspectionId}</p>
-        <button onClick={onNew} className="w-full font-body text-sm font-semibold px-5 py-2.5 rounded-xl bg-[var(--blue-600)] text-white hover:bg-[var(--blue-700)] shadow-sm transition-all hover:shadow-[var(--shadow-md)]">Start New Inspection</button>
+    <>
+      <div className="print-only">
+        <JointInspectionPrintDoc data={data} />
       </div>
-    </div>
+
+      <div className="no-print min-h-screen bg-[var(--paper)] flex items-center justify-center p-6">
+        <div className="text-center max-w-sm bg-white rounded-2xl border border-[var(--line)] shadow-[var(--shadow-lg)] p-8 relative tick rise">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-[var(--pass-bg)] flex items-center justify-center ring-4 ring-[var(--pass-bg)]/50" style={{ animation: "popin .3s cubic-bezier(.2,.9,.3,1.2)" }}>
+            <CheckCircle2 size={32} className="text-[var(--pass)]" />
+          </div>
+          <p className="font-mono text-[10px] tracking-[0.2em] text-[var(--blue-600)] uppercase mb-2">Form JIC-01 · Complete</p>
+          <h1 className="font-display font-bold text-xl text-[var(--ink)] mb-1">Inspection Submitted</h1>
+          <p className="font-body text-sm text-[var(--ink-soft)] mb-1">{data.projectName} · Unit {data.unitNumber}</p>
+          <p className="font-mono text-xs text-[var(--blue-700)] bg-[var(--blue-50)] inline-block px-2 py-1 rounded-md mb-5">{data.inspectionId}</p>
+
+          <div className="space-y-2 mb-4">
+            <button
+              onClick={() => setShowPrintModal(true)}
+              className="w-full font-body text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs flex items-center justify-center gap-2 transition-all"
+            >
+              <FileDown size={15} className="text-blue-600" /> Print Official Form / PDF
+            </button>
+          </div>
+
+          <button onClick={onNew} className="w-full font-body text-sm font-semibold px-5 py-2.5 rounded-xl bg-[var(--blue-600)] text-white hover:bg-[var(--blue-700)] shadow-sm transition-all hover:shadow-[var(--shadow-md)]">Start New Inspection</button>
+        </div>
+      </div>
+
+      {showPrintModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[var(--ink)]/60 backdrop-blur-sm no-print overflow-y-auto"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowPrintModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <FileDown size={18} className="text-blue-600" />
+                <span className="font-display font-bold text-sm text-slate-800">
+                  Official Joint Inspection Checklist (Print / PDF Preview)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="font-body text-xs font-bold px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                >
+                  <FileDown size={14} /> Print / Save as PDF
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(false)}
+                  className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-500 transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/60">
+              <div className="bg-white shadow-md border border-slate-200 mx-auto rounded p-2">
+                <JointInspectionPrintDoc data={data} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1417,6 +1784,7 @@ function SubmittedScreen({ data, onNew }) {
 export default function InspectionApp() {
   const [screen, setScreen] = useState("landing");
   const [data, setData] = useState(null);
+  const [siteEngineerPasscode, setSiteEngineerPasscode] = useState("");
   const [projects, setProjects] = useState({});
   const [projectsError, setProjectsError] = useState(null);
   const [backend, setBackend] = useState(null);
@@ -1445,7 +1813,7 @@ export default function InspectionApp() {
     })();
   }, []);
 
-  async function handleStart(project, unit, type, id) {
+  async function handleStart(project, unit, type, id, verifiedPin = "") {
     // Check if there's a previous inspection for this project+unit
     setCheckingPrevious(true);
     try {
@@ -1471,10 +1839,10 @@ export default function InspectionApp() {
       setCheckingPrevious(false);
     }
     // No previous inspection found — start blank
-    _doStart(project, unit, type, id, null);
+    _doStart(project, unit, type, id, null, verifiedPin);
   }
 
-  function _doStart(project, unit, type, id, previousCells) {
+  function _doStart(project, unit, type, id, previousCells, verifiedPin = "") {
     const fresh = freshInspection(project, unit, type);
     fresh.inspectionId = id;
     // If carrying forward checklist data, copy cells but strip signatures/approval state
@@ -1482,6 +1850,7 @@ export default function InspectionApp() {
       fresh.cells = { ...previousCells };
       fresh.previousInspectionRef = previousInspection?.inspectionId || null;
     }
+    if (verifiedPin) setSiteEngineerPasscode(verifiedPin);
     setData(fresh);
     setScreen("form");
     setShowReInspectModal(false);
@@ -1492,7 +1861,8 @@ export default function InspectionApp() {
   async function handleResume(inspectionId) {
     setResuming(true);
     try {
-      const res = await fetch(`/api/draft?inspectionId=${encodeURIComponent(inspectionId)}`);
+      const url = `/api/draft?inspectionId=${encodeURIComponent(inspectionId)}&passcode=${encodeURIComponent(siteEngineerPasscode)}`;
+      const res = await fetch(url);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Draft not found");
       setData(body.data);
@@ -1505,13 +1875,18 @@ export default function InspectionApp() {
     }
   }
 
+  const [portalSession, setPortalSession] = useState({ role: "Admin", userName: "Administrator" });
+
   return (
     <div className="font-body">
       {screen === "landing" && (
         <LandingScreen
           onStart={handleStart}
           onResume={handleResume}
-          onOpenPortal={() => setScreen("portal")}
+          onOpenPortal={(session) => {
+            if (session) setPortalSession(session);
+            setScreen("portal");
+          }}
           projects={projects}
           projectsError={projectsError}
           backend={backend}
@@ -1519,10 +1894,15 @@ export default function InspectionApp() {
         />
       )}
       {screen === "portal" && (
-        <ApprovalPortal onExit={() => setScreen("landing")} />
+        <ApprovalPortal
+          initialRole={portalSession.role}
+          initialUserName={portalSession.userName}
+          initialAuthenticated={true}
+          onExit={() => setScreen("landing")}
+        />
       )}
       {screen === "form" && data && (
-        <InspectionForm data={data} setData={setData} onBack={() => setScreen("landing")} onSubmitted={() => setScreen("submitted")} push={push} />
+        <InspectionForm data={data} setData={setData} onBack={() => setScreen("landing")} onSubmitted={() => setScreen("submitted")} push={push} siteEngineerPasscode={siteEngineerPasscode} />
       )}
       {screen === "submitted" && data && (
         <SubmittedScreen data={data} onNew={() => { setData(null); setScreen("landing"); }} />
@@ -1592,13 +1972,13 @@ export default function InspectionApp() {
 
             <div className="flex gap-3">
               <button
-                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, null)}
+                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, null, siteEngineerPasscode)}
                 className="flex-1 font-body text-sm font-bold py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors"
               >
                 Start Blank
               </button>
               <button
-                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, previousInspection.cells)}
+                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, previousInspection.cells, siteEngineerPasscode)}
                 className="flex-1 font-body text-sm font-bold py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
               >
                 <ClipboardCheck size={16} /> Load Previous Checklist

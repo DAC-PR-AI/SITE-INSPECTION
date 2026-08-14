@@ -1,32 +1,19 @@
 import { NextResponse } from "next/server";
 import { getInspection, getAllInspections, upsertInspection } from "../../../lib/store";
+import { verifyRolePassword, getRoleConfig } from "../../../lib/auth";
+import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 
-// Standard role identifiers
-const ROLE_MAP = {
-  "Site Engineer": "SITE_ENGINEER",
-  "Customer": "CUSTOMER",
-  "Technical Executive": "TECHNICAL_EXECUTIVE",
-  "QA/QC In-Charge": "QA_QC",
-  "Project Manager": "PROJECT_MANAGER",
-  "GM – HUG": "GM_HUG",
-  "VP – HUG": "VP_HUG",
-};
-
-// Role Authentication Passcodes (Customer & Technical Executive do NOT require passcode)
-const ROLE_PASSCODES = {
-  "SITE_ENGINEER": "1818",
-  "QA_QC": "2020",
-  "PROJECT_MANAGER": "3030",
-  "GM_HUG": "4040",
-  "VP_HUG": "5050",
-};
+// Max allowed signature payload size in bytes (~500 KB as base64)
+const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 // Sequential stage requirement mapping
 const REQUIRED_PREVIOUS_STATUS = {
   "QA_QC": "QA_QC_PENDING",
   "PROJECT_MANAGER": "PROJECT_MANAGER_PENDING",
+  "MANAGER_TECHNICAL": "MANAGER_TECHNICAL_PENDING",
   "GM_HUG": "GM_HUG_PENDING",
   "VP_HUG": "VP_HUG_PENDING",
 };
@@ -35,7 +22,8 @@ const REQUIRED_PREVIOUS_STATUS = {
 const NEXT_STATUS = {
   "SITE_ENGINEER": "QA_QC_PENDING",
   "QA_QC": "PROJECT_MANAGER_PENDING",
-  "PROJECT_MANAGER": "GM_HUG_PENDING",
+  "PROJECT_MANAGER": "MANAGER_TECHNICAL_PENDING",
+  "MANAGER_TECHNICAL": "GM_HUG_PENDING",
   "GM_HUG": "VP_HUG_PENDING",
   "VP_HUG": "COMPLETED",
 };
@@ -53,7 +41,8 @@ export async function GET(req) {
     }
 
     const all = await getAllInspections();
-    const normalizedRole = ROLE_MAP[roleParam] || roleParam;
+    const roleConfig = getRoleConfig(roleParam);
+    const normalizedRole = roleConfig ? roleConfig.id : roleParam;
 
     let filtered = all;
 
@@ -65,10 +54,15 @@ export async function GET(req) {
         (!projectFilter || i.projectName === projectFilter) &&
         (!unitFilter || i.unitNumber === unitFilter)
       );
+    } else if (normalizedRole === "ADMIN" || roleParam === "all" || roleParam === "Admin") {
+      // Admin sees ALL inspections across all statuses
+      filtered = all;
     } else if (normalizedRole === "QA_QC") {
       filtered = all.filter((i) => i.workflowStatus === "QA_QC_PENDING");
     } else if (normalizedRole === "PROJECT_MANAGER") {
       filtered = all.filter((i) => i.workflowStatus === "PROJECT_MANAGER_PENDING");
+    } else if (normalizedRole === "MANAGER_TECHNICAL") {
+      filtered = all.filter((i) => i.workflowStatus === "MANAGER_TECHNICAL_PENDING" || (!i.signatures?.managerTechnical && ["MANAGER_TECHNICAL_PENDING", "GM_HUG_PENDING"].includes(i.workflowStatus)));
     } else if (normalizedRole === "GM_HUG") {
       filtered = all.filter((i) => i.workflowStatus === "GM_HUG_PENDING");
     } else if (normalizedRole === "VP_HUG") {
@@ -83,12 +77,14 @@ export async function GET(req) {
 
     return NextResponse.json({ inspections: filtered });
   } catch (e) {
-    return NextResponse.json({ error: e.message || "Failed to fetch approvals queue" }, { status: 500 });
+    console.error("[approval] GET error:", e);
+    return NextResponse.json({ error: "Failed to fetch approvals queue" }, { status: 500 });
   }
 }
 
 export async function POST(req) {
   try {
+    const ip = getClientIp(req);
     const body = await req.json();
     const { inspectionId, role, userName, action, comments = "", signature = "", passcode = "" } = body;
 
@@ -99,20 +95,60 @@ export async function POST(req) {
       );
     }
 
+    // Validate signature payload size
+    if (signature && signature.length > MAX_SIGNATURE_BYTES) {
+      return NextResponse.json(
+        { error: "Signature payload exceeds maximum allowed size." },
+        { status: 413 }
+      );
+    }
+
+    // Validate signature is a data URI if provided
+    if (signature && !signature.startsWith("data:image/")) {
+      return NextResponse.json(
+        { error: "Invalid signature format." },
+        { status: 400 }
+      );
+    }
+
+    const roleConfig = getRoleConfig(role);
+    if (!roleConfig) {
+      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+    }
+
+    // Admin cannot sign role signature boxes
+    if (roleConfig.id === "ADMIN") {
+      return NextResponse.json(
+        { error: "Admin role cannot sign individual inspection boxes." },
+        { status: 403 }
+      );
+    }
+
+    // Rate limit check
+    const { limited, resetInMs } = checkRateLimit(ip, roleConfig.id);
+    if (limited) {
+      const minutes = Math.ceil(resetInMs / 60000);
+      return NextResponse.json(
+        { error: `Too many attempts. Try again in ${minutes} minute(s).` },
+        { status: 429 }
+      );
+    }
+
+    // Verify 6-digit role password
+    const isPinValid = verifyRolePassword(role, passcode);
+    if (!isPinValid) {
+      recordFailedAttempt(ip, roleConfig.id);
+      return NextResponse.json(
+        { error: "Invalid credentials." },
+        { status: 401 }
+      );
+    }
+
+    clearRateLimit(ip, roleConfig.id);
+
     const inspection = await getInspection(inspectionId);
     if (!inspection) {
       return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
-    }
-
-    const normalizedRole = ROLE_MAP[role] || role;
-    const requiredPasscode = ROLE_PASSCODES[normalizedRole];
-
-    // Enforce role passcode authentication for roles requiring passcodes
-    if (requiredPasscode && passcode !== requiredPasscode) {
-      return NextResponse.json(
-        { error: `Invalid passcode for ${role}. Please enter the correct PIN.` },
-        { status: 401 }
-      );
     }
 
     const currentStatus = inspection.workflowStatus || "DRAFT";
@@ -124,13 +160,15 @@ export async function POST(req) {
       );
     }
 
-    // Role-based state machine verification
+    const normalizedRole = roleConfig.id;
+
+    // Role-based state machine verification for sequential stages
     if (action === "approve" || action === "sign") {
       if (REQUIRED_PREVIOUS_STATUS[normalizedRole]) {
         const required = REQUIRED_PREVIOUS_STATUS[normalizedRole];
         if (currentStatus !== required) {
           return NextResponse.json(
-            { error: `Unauthorized approval attempt: Inspection must be in ${required} stage before ${role} can approve.` },
+            { error: `Inspection is not at the correct stage for this approval.` },
             { status: 403 }
           );
         }
@@ -139,7 +177,7 @@ export async function POST(req) {
 
     // Enforce mandatory Customer AND Technical Executive signature gate before stage advancement past Site Engineer
     if (action === "approve") {
-      if (["QA_QC", "PROJECT_MANAGER", "GM_HUG", "VP_HUG"].includes(normalizedRole)) {
+      if (["QA_QC", "PROJECT_MANAGER", "MANAGER_TECHNICAL", "GM_HUG", "VP_HUG"].includes(normalizedRole)) {
         const hasCustomer = !!(inspection.signatures && inspection.signatures.customer);
         const hasTechExec = !!(inspection.signatures && inspection.signatures.technicalExecutive);
         if (!hasCustomer || !hasTechExec) {
@@ -147,7 +185,7 @@ export async function POST(req) {
           if (!hasCustomer) missing.push("Customer Sign");
           if (!hasTechExec) missing.push("Technical Executive Sign");
           return NextResponse.json(
-            { error: `Cannot advance approval stage. Missing required signature(s): ${missing.join(" & ")}. Both Customer Sign and Technical Executive Sign are mandatory.` },
+            { error: `Cannot advance approval stage. Missing required signature(s): ${missing.join(" & ")}.` },
             { status: 400 }
           );
         }
@@ -168,46 +206,28 @@ export async function POST(req) {
       newStatus = "REJECTED";
       inspection.rejectionReason = comments;
       inspection.rejectedBy = userName;
-      inspection.rejectedRole = role;
+      inspection.rejectedRole = roleConfig.label;
     } else if (normalizedRole === "CUSTOMER" || normalizedRole === "TECHNICAL_EXECUTIVE") {
-      // Parallel signature actions do not alter the sequential workflow stage
+      // Parallel signature actions do not alter the sequential workflow stage directly
       newStatus = currentStatus;
     } else {
       newStatus = NEXT_STATUS[normalizedRole] || currentStatus;
     }
 
-    // Key signatures storage
-    const sigKeyMap = {
-      "Customer": "customer",
-      "Site Engineer": "siteEngineer",
-      "QA/QC In-Charge": "qaqc",
-      "Project Manager": "projectManager",
-      "Technical Executive": "technicalExecutive",
-      "Manager Technical": "managerTechnical",
-      "GM – HUG": "gmHug",
-      "VP – HUG": "vpHug",
-      "CUSTOMER": "customer",
-      "SITE_ENGINEER": "siteEngineer",
-      "QA_QC": "qaqc",
-      "PROJECT_MANAGER": "projectManager",
-      "TECHNICAL_EXECUTIVE": "technicalExecutive",
-      "GM_HUG": "gmHug",
-      "VP_HUG": "vpHug",
-    };
-
-    const sigKey = sigKeyMap[role] || sigKeyMap[normalizedRole];
+    // Role-restricted signature capture: assign ONLY to this role's specific signature key
+    const sigKey = roleConfig.sigKey;
     if (sigKey && signature) {
       if (!inspection.signatures) inspection.signatures = {};
       inspection.signatures[sigKey] = signature;
     }
 
     const auditRecord = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: crypto.randomUUID(),
       inspectionId,
       project: inspection.projectName || "",
       unit: inspection.unitNumber || "",
-      inspectionType: inspection.inspectionType || "IJI",
-      role,
+      inspectionType: inspection.inspectionType || "INTERIOR JOINT INSPECTION",
+      role: roleConfig.label,
       userName,
       action: auditAction,
       status: newStatus,
@@ -230,6 +250,7 @@ export async function POST(req) {
       inspection,
     });
   } catch (e) {
-    return NextResponse.json({ error: e.message || "Failed to process approval" }, { status: 500 });
+    console.error("[approval] POST error:", e);
+    return NextResponse.json({ error: "Failed to process approval" }, { status: 500 });
   }
 }

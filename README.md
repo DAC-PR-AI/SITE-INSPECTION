@@ -114,6 +114,51 @@ the start screen will read "Connected · Google Sheets".
 
 ---
 
+---
+
+## Inspection Types
+
+Every inspection requires selecting one of the 4 official inspection types before choosing a project and unit:
+1. `INTERIOR JOINT INSPECTION`
+2. `INTERIOR JOINT INSPECTION RE-CHECK`
+3. `FINAL JOINT INSPECTION`
+4. `FINAL JOINT INSPECTION RE-CHECK`
+
+This inspection type is stored directly on the Google Sheet / local database, displayed throughout the workflow, and dynamically injected into the official printed checklist header and customer declaration.
+
+---
+
+## Roles & 6-Digit Password Authentication
+
+Each role authenticates using a dedicated 6-digit password. In production, configure these via environment variables. In local zero-config demo mode, the following documented default PINs are active:
+
+| Role / Action | Environment Variable | Default Demo PIN | Role Scope / Permissions |
+|---|---|---|---|
+| **Start Inspection** | `AUTH_PIN_START_INSPECTION` | `272727` | Unlocks new inspection start form |
+| **Site Engineer** | `AUTH_PIN_SITE_ENGINEER` | `272727` | Inspection In-Charge sign-off & portal |
+| **Customer** | `AUTH_PIN_CUSTOMER` | `111111` | Flat/Villa Owner sign-off |
+| **QA/QC In-Charge** | `AUTH_PIN_QAQC` | `202020` | Quality & compliance stage approval |
+| **Project Manager** | `AUTH_PIN_PROJECT_MANAGER` | `303030` | Project verification stage approval |
+| **Technical Executive** | `AUTH_PIN_TECHNICAL_EXECUTIVE` | `444444` | Technical review parallel sign-off |
+| **Manager Technical** | `AUTH_PIN_MANAGER_TECHNICAL` | `454545` | Technical management sign-off |
+| **GM – HUG** | `AUTH_PIN_GM_HUG` | `404040` | General Manager approval |
+| **VP – HUG** | `AUTH_PIN_VP_HUG` | `505050` | Vice President final completion sign-off |
+| **Admin** | `AUTH_PIN_ADMIN` | `999999` | Complete oversight across all inspections & exclusive Print/PDF export |
+
+> **Security & Privacy Rules:**
+> - Passwords are **never displayed in plaintext anywhere in the UI** (masked `••••••` input only, no show password toggles, no plaintext in logs or exported documents).
+> - Each signature box strictly verifies the 6-digit password for that specific role and locks upon signing.
+
+---
+
+## Admin Oversight & Exclusive Print/PDF Generation
+
+- **Full Oversight View**: Admin can log in using the 6-digit Admin PIN to view **all inspections across all stages** (Drafts, In Progress, QA/QC, PM, GM, VP, Completed, Rejected).
+- **Full Detail Inspection**: Admin can inspect the full matrix, defect remarks, photos, and signatures collected so far.
+- **Exclusive Print / PDF Export**: Only the Admin role can trigger the official print layout and PDF generation from the portal oversight view. Admin does not sign individual inspection boxes.
+
+---
+
 ## Backend switching
 
 `lib/store.js` is the only thing the API routes import from. It checks for
@@ -134,20 +179,7 @@ the start screen will read "Connected · Google Sheets".
 - **Resume Draft** — enter an Inspection ID and `GET /api/draft` looks up
   that row and reloads the full form state (matrix answers, photos,
   signatures included).
-- **Submit** — `POST /api/submit` writes the same row with status
-  `submitted` and a `SubmittedAt` timestamp.
-- **Export JSON / Print** — client-side only, no server round-trip.
+- **Approval Portal** — `GET /api/approval` retrieves queues and `POST /api/approval`
+  advances stages or captures verified digital signatures.
+- **Auth Verification** — `POST /api/auth` verifies role 6-digit passwords securely.
 
-## Notes & limits
-
-- A single Google Sheets cell holds ~50,000 characters, so each inspection's
-  full JSON (matrix answers + photos + signatures) is split across 12
-  columns (`DataJSON_1`…`DataJSON_12`), giving roughly 500KB of headroom.
-  Photos are auto-compressed and capped at 4 per failed item to stay well
-  within that. If a save ever fails with "too large," remove a photo or two.
-- There's no login — anyone with the Inspection ID can resume/edit that
-  draft. If you need real access control, put the app behind Vercel's
-  password protection or add your own auth before going to production.
-- Signatures are re-captured from scratch each time a box is edited (the
-  previous strokes aren't preloaded into the canvas), which keeps the
-  signing UI simple.

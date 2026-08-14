@@ -29,7 +29,7 @@ const SHEETS_TO_CREATE = [
   {
     name: 'Inspections',
     headers: [
-      'InspectionId', 'Project', 'Unit', 'CustomerName', 'Date', 'Time',
+      'InspectionId', 'Project', 'Unit', 'InspectionType', 'CustomerName', 'Date', 'Time',
       'Status', 'CompletionPct', 'Passed', 'Failed', 'NA', 'DeclarationChecked',
       'UpdatedAt', 'SubmittedAt',
       'DataJSON_1', 'DataJSON_2', 'DataJSON_3', 'DataJSON_4', 'DataJSON_5',
