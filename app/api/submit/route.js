@@ -11,9 +11,14 @@ import crypto from "crypto";
 export async function POST(request) {
   try {
     const ip = getClientIp(request);
-    const data = await request.json();
+    let data;
+    try {
+      data = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
+    }
 
-    if (!data.inspectionId) {
+    if (!data || !data.inspectionId) {
       return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
 

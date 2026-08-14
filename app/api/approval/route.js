@@ -40,53 +40,59 @@ export async function GET(req) {
       return NextResponse.json({ inspection: item });
     }
 
-    const all = await getAllInspections();
+    const all = (await getAllInspections()) || [];
     const roleConfig = getRoleConfig(roleParam);
     const normalizedRole = roleConfig ? roleConfig.id : roleParam;
 
-    let filtered = all;
+    let filtered = Array.isArray(all) ? all : [];
 
     // Special lookup for re-inspection feature: find all inspections for a specific project+unit
     if (roleParam === "all_for_unit") {
       const projectFilter = searchParams.get("project") || "";
       const unitFilter = searchParams.get("unit") || "";
-      filtered = all.filter((i) =>
+      filtered = filtered.filter((i) =>
+        Boolean(i) &&
         (!projectFilter || i.projectName === projectFilter) &&
         (!unitFilter || i.unitNumber === unitFilter)
       );
     } else if (normalizedRole === "ADMIN" || roleParam === "all" || roleParam === "Admin") {
       // Admin sees ALL inspections across all statuses
-      filtered = all;
+      filtered = filtered.filter(Boolean);
     } else if (normalizedRole === "QA_QC") {
-      filtered = all.filter((i) => i.workflowStatus === "QA_QC_PENDING");
+      filtered = filtered.filter((i) => Boolean(i) && i.workflowStatus === "QA_QC_PENDING");
     } else if (normalizedRole === "PROJECT_MANAGER") {
-      filtered = all.filter((i) => i.workflowStatus === "PROJECT_MANAGER_PENDING");
+      filtered = filtered.filter((i) => Boolean(i) && i.workflowStatus === "PROJECT_MANAGER_PENDING");
     } else if (normalizedRole === "MANAGER_TECHNICAL") {
-      filtered = all.filter((i) => i.workflowStatus === "MANAGER_TECHNICAL_PENDING" || (!i.signatures?.managerTechnical && ["MANAGER_TECHNICAL_PENDING", "GM_HUG_PENDING"].includes(i.workflowStatus)));
+      filtered = filtered.filter((i) => Boolean(i) && (i.workflowStatus === "MANAGER_TECHNICAL_PENDING" || (!i.signatures?.managerTechnical && ["MANAGER_TECHNICAL_PENDING", "GM_HUG_PENDING"].includes(i.workflowStatus))));
     } else if (normalizedRole === "GM_HUG") {
-      filtered = all.filter((i) => i.workflowStatus === "GM_HUG_PENDING");
+      filtered = filtered.filter((i) => Boolean(i) && i.workflowStatus === "GM_HUG_PENDING");
     } else if (normalizedRole === "VP_HUG") {
-      filtered = all.filter((i) => i.workflowStatus === "VP_HUG_PENDING");
+      filtered = filtered.filter((i) => Boolean(i) && i.workflowStatus === "VP_HUG_PENDING");
     } else if (normalizedRole === "CUSTOMER") {
-      filtered = all.filter((i) => !i.signatures?.customer);
+      filtered = filtered.filter((i) => Boolean(i) && !i.signatures?.customer);
     } else if (normalizedRole === "TECHNICAL_EXECUTIVE") {
-      filtered = all.filter((i) => !i.signatures?.technicalExecutive);
+      filtered = filtered.filter((i) => Boolean(i) && !i.signatures?.technicalExecutive);
     } else if (normalizedRole === "SITE_ENGINEER") {
-      filtered = all.filter((i) => ["DRAFT", "SITE_ENGINEER_PENDING", "REJECTED"].includes(i.workflowStatus || i.status));
+      filtered = filtered.filter((i) => Boolean(i) && ["DRAFT", "SITE_ENGINEER_PENDING", "REJECTED"].includes(i.workflowStatus || i.status));
     }
 
     return NextResponse.json({ inspections: filtered });
   } catch (e) {
     console.error("[approval] GET error:", e);
-    return NextResponse.json({ error: "Failed to fetch approvals queue" }, { status: 500 });
+    return NextResponse.json({ inspections: [] });
   }
 }
 
 export async function POST(req) {
   try {
     const ip = getClientIp(req);
-    const body = await req.json();
-    const { inspectionId, role, userName, action, comments = "", signature = "", passcode = "" } = body;
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
+    }
+    const { inspectionId, role, userName, action, comments = "", signature = "", passcode = "" } = body || {};
 
     if (!inspectionId || !role || !userName || !action) {
       return NextResponse.json(

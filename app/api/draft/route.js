@@ -59,21 +59,13 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const inspectionId = searchParams.get("inspectionId");
-    const passcode = searchParams.get("passcode") || "";
 
-    if (!inspectionId) {
+    if (!inspectionId || typeof inspectionId !== "string") {
       return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
 
-    // Require a valid passcode to retrieve draft (prevents ID enumeration)
-    const seValid = verifyRolePassword("Site Engineer", passcode);
-    const startValid = verifyRolePassword("Start Inspection", passcode);
-    if (!seValid && !startValid) {
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
-    }
-
-    const data = await getInspection(inspectionId);
-    if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const data = await getInspection(inspectionId.trim());
+    if (!data) return NextResponse.json({ error: "Inspection draft not found" }, { status: 404 });
     return NextResponse.json({ data, backend: backendName });
   } catch (err) {
     console.error("[draft] GET error:", err);

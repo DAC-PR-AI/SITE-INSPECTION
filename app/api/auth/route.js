@@ -7,8 +7,13 @@ export const dynamic = "force-dynamic";
 export async function POST(req) {
   try {
     const ip = getClientIp(req);
-    const body = await req.json();
-    const { role, pin } = body;
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ ok: false, error: "Invalid JSON request body." }, { status: 400 });
+    }
+    const { role, pin } = body || {};
 
     if (!role || !pin) {
       return NextResponse.json(
