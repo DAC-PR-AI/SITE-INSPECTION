@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
+const isDev = process.env.NODE_ENV !== "production";
+
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
 
   // HTTP Security Headers applied to every response
   async headers() {
@@ -18,23 +21,22 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Limit browser permissions
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-          // Content Security Policy — allow same-origin assets + Google Fonts
+          // Content Security Policy — hardened for production
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
               "object-src 'none'",
               "base-uri 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires unsafe-eval in dev
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://drive.google.com https://*.googleusercontent.com",
-              "connect-src 'self'",
+              "connect-src 'self' https://*.vercel.app",
               "frame-ancestors 'none'",
+              "upgrade-insecure-requests",
             ].join("; "),
           },
-          // Remove server fingerprint
-          { key: "X-Powered-By", value: "" },
         ],
       },
     ];
@@ -42,3 +44,4 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+
