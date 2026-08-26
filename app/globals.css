@@ -245,3 +245,126 @@ button, a, input, select, textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--blue-500);
 }
+
+/* ─── Construction Crane & Building Animations ────────────────────────────── */
+@keyframes crane-jib-sway {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-1.8deg);
+  }
+}
+
+.crane-jib-arm {
+  transform-origin: 250px 38px;
+  animation: crane-jib-sway 12s ease-in-out infinite;
+}
+
+@keyframes trolley-traverse {
+  0% {
+    transform: translateX(170px);
+  }
+  30% {
+    transform: translateX(110px);
+  }
+  70% {
+    transform: translateX(110px);
+  }
+  100% {
+    transform: translateX(170px);
+  }
+}
+
+.crane-trolley-hoist {
+  animation: trolley-traverse 10s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+@keyframes hook-lower-raise {
+  0%, 25% {
+    transform: translate(0, 55px);
+  }
+  45%, 65% {
+    transform: translate(0, 95px); /* Lowered precisely onto the building top */
+  }
+  85%, 100% {
+    transform: translate(0, 55px); /* Raised back up */
+  }
+}
+
+.hoist-hook-block {
+  animation: hook-lower-raise 10s ease-in-out infinite;
+}
+
+@keyframes cable-stretch {
+  0%, 25% {
+    y2: 120px;
+    transform: scaleY(0.7);
+    transform-origin: 0 42px;
+  }
+  45%, 65% {
+    transform: scaleY(1.1);
+    transform-origin: 0 42px;
+  }
+  85%, 100% {
+    transform: scaleY(0.7);
+    transform-origin: 0 42px;
+  }
+}
+
+.hoist-cable {
+  animation: cable-stretch 10s ease-in-out infinite;
+}
+
+@keyframes beacon-blink {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+}
+
+.beacon-light {
+  transform-origin: 250px 10px;
+  animation: beacon-blink 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes welding-spark-flash {
+  0%, 100% {
+    opacity: 0;
+    transform: translate(145px, 148px) scale(0.2);
+  }
+  30%, 60% {
+    opacity: 0.9;
+    transform: translate(145px, 148px) scale(1);
+  }
+  35%, 55% {
+    opacity: 0.2;
+    transform: translate(145px, 148px) scale(0.5);
+  }
+  40%, 50% {
+    opacity: 1;
+    transform: translate(145px, 148px) scale(1.3);
+  }
+}
+
+.welding-spark {
+  animation: welding-spark-flash 2.5s ease-in-out infinite;
+}
+
+@keyframes floor-construction-glow {
+  0%, 100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+  }
+}
+
+.building-floor-rising {
+  animation: floor-construction-glow 3s ease-in-out infinite;
+}

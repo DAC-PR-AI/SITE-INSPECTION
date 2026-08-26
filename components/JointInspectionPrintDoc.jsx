@@ -243,6 +243,19 @@ export default function JointInspectionPrintDoc({ data }) {
         </div>
       </div>
 
+      {/* Customer Verification Photo */}
+      {data.customerVerificationPhoto && (
+        <div className="border-2 border-black p-2 mb-2 flex items-center justify-between text-[9px] sm:text-[10px]">
+          <div>
+            <p className="font-bold uppercase mb-0.5">CUSTOMER VERIFICATION PHOTO</p>
+            <p className="text-[8.5px] sm:text-[9px] text-gray-700">Verified proof of executive & customer presence on-site.</p>
+          </div>
+          <div className="h-16 w-24 border border-black overflow-hidden flex items-center justify-center bg-gray-50 shrink-0 ml-2">
+            <img src={data.customerVerificationPhoto} alt="Customer Verification" className="h-full w-full object-cover" />
+          </div>
+        </div>
+      )}
+
       {/* Signature Grid (2 rows x 4 columns) */}
       <div className="border-2 border-black">
         {SIGNATURE_ROWS.map((row, rIdx) => (

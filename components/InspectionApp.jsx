@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import ApprovalPortal from "./ApprovalPortal";
 import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
+import InspectionLoadingOverlay from "./InspectionLoadingOverlay";
 
 
 /* ---------------------------------------------------------------------- */
@@ -125,6 +126,22 @@ function compressImage(file, maxWidth = 700, quality = 0.5) {
   });
 }
 
+async function uploadPhoto(inspectionId, photoType, dataUrl, itemId, areaKey) {
+  try {
+    const res = await fetch("/api/photos/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inspectionId, photoType, dataUrl, itemId, areaKey }),
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    const json = await res.json();
+    return json.url;
+  } catch (err) {
+    console.error("Photo upload failed, falling back to local base64:", err);
+    return dataUrl;
+  }
+}
+
 /* ---------------------------------------------------------------------- */
 /* Toasts                                                                   */
 /* ---------------------------------------------------------------------- */
@@ -211,24 +228,67 @@ function SignatureCanvas({ onReady }) {
       isEmpty: () => pathsRef.current.length === 0,
       exportPNG: () => {
         const canvas = canvasRef.current;
-        const out = document.createElement("canvas");
-        out.width = canvas.width;
-        out.height = canvas.height;
-        const octx = out.getContext("2d");
-        octx.fillStyle = "#FFFFFF";
-        octx.fillRect(0, 0, out.width, out.height);
-        octx.drawImage(canvas, 0, 0);
-        return out.toDataURL("image/png");
+        if (!canvas) return "";
+        try {
+          const ctx = canvas.getContext("2d");
+          const w = canvas.width;
+          const h = canvas.height;
+          const imgData = ctx.getImageData(0, 0, w, h);
+          const data = imgData.data;
+
+          let minX = w, minY = h, maxX = 0, maxY = 0;
+          let hasDrawn = false;
+
+          for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+              const idx = (y * w + x) * 4;
+              const alpha = data[idx + 3];
+              if (alpha > 15) {
+                hasDrawn = true;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+
+          if (!hasDrawn) return "";
+
+          const padding = 12;
+          const cropX = Math.max(0, minX - padding);
+          const cropY = Math.max(0, minY - padding);
+          const cropW = Math.min(w - cropX, maxX - minX + padding * 2);
+          const cropH = Math.min(h - cropY, maxY - minY + padding * 2);
+
+          const trimmedCanvas = document.createElement("canvas");
+          trimmedCanvas.width = cropW;
+          trimmedCanvas.height = cropH;
+          const trimmedCtx = trimmedCanvas.getContext("2d");
+          trimmedCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+          return trimmedCanvas.toDataURL("image/png");
+        } catch (err) {
+          console.warn("Trim signature fallback:", err);
+          return canvas.toDataURL("image/png");
+        }
       },
     });
   }, [onReady, redraw]);
 
   function getPoint(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const touch = e.touches ? e.touches[0] : e;
-    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (touch.clientX - rect.left) * scaleX,
+      y: (touch.clientY - rect.top) * scaleY,
+    };
   }
-  function start(e) { e.preventDefault(); drawingRef.current = true; pathsRef.current.push([getPoint(e)]); }
+  function start(e) { e.preventDefault(); drawingRef.current = true; pathsRef.current.push([getPoint(e)]); redraw(); }
   function move(e) {
     if (!drawingRef.current) return;
     e.preventDefault();
@@ -245,7 +305,7 @@ function SignatureCanvas({ onReady }) {
     >
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full cursor-crosshair"
+        className="absolute inset-0 w-full h-full cursor-crosshair block"
         onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
         onTouchStart={start} onTouchMove={move} onTouchEnd={end}
       />
@@ -326,23 +386,139 @@ function SignatureModal({ signatory, onClose, onSave }) {
   );
 }
 
-function SignatureBox({ signatory, value, onSign }) {
+/* ---------------------------------------------------------------------- */
+/* Customer Verification Photo                                             */
+/* ---------------------------------------------------------------------- */
+function CustomerVerificationPhoto({ data, updateField, push }) {
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const photo = data?.customerVerificationPhoto;
+
+  async function handleFile(file) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const compressed = await compressImage(file);
+      const url = await uploadPhoto(data?.inspectionId, 'customerVerification', compressed);
+      updateField({ customerVerificationPhoto: url });
+      if (push) push("Customer verification photo captured.", "success");
+    } catch {
+      if (push) push("Failed to process photo.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200/80 p-6 relative tick shadow-sm">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h2 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
+            <Camera size={20} className="text-blue-600" /> Customer Verification Photo <span className="text-rose-500">*</span>
+          </h2>
+          <p className="font-body text-xs text-slate-600 mt-1">
+            Take a photo with the customer as proof of verification.
+          </p>
+        </div>
+        {photo ? (
+          <span className="font-body text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl flex items-center gap-1.5">
+            <CheckCircle2 size={14} className="text-emerald-600" /> Photo Attached
+          </span>
+        ) : (
+          <span className="font-body text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1 rounded-xl flex items-center gap-1.5">
+            <AlertTriangle size={14} className="text-rose-500" /> Required
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4">
+        {photo ? (
+          <div className="relative max-w-sm rounded-2xl overflow-hidden border border-slate-200 shadow-sm group bg-slate-50">
+            <img src={photo} alt="Customer Verification Photo" className="w-full h-56 object-cover" />
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-3">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="font-body text-xs font-semibold px-3.5 py-2 rounded-xl bg-white text-slate-800 hover:bg-slate-100 shadow-md flex items-center gap-1.5"
+              >
+                <Camera size={14} /> Retake Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => updateField({ customerVerificationPhoto: null })}
+                className="font-body text-xs font-semibold px-3.5 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 shadow-md flex items-center gap-1.5"
+              >
+                <Trash2 size={14} /> Remove
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={() => fileRef.current?.click()}
+            className="w-full max-w-md h-40 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 cursor-pointer flex flex-col items-center justify-center text-blue-600 transition-all gap-2 p-4 text-center group"
+          >
+            {busy ? (
+              <Loader2 size={24} className="animate-spin text-blue-600" />
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Camera size={24} />
+                </div>
+                <div>
+                  <p className="font-body text-xs font-bold text-slate-800">Click to Capture / Upload Verification Photo</p>
+                  <p className="font-body text-[11px] text-slate-500 mt-0.5">Photo showing executive and customer together</p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+        />
+      </div>
+
+      {!photo && (
+        <p className="font-body text-xs text-rose-600 mt-3 font-semibold flex items-center gap-1.5 bg-rose-50 border border-rose-200 p-3 rounded-xl">
+          <AlertTriangle size={15} className="shrink-0 text-rose-500" />
+          Customer verification photo is required before completing the inspection.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SignatureBox({ signatory, value, onSign, hasVerificationPhoto = true, push }) {
   const [open, setOpen] = useState(false);
   const isSigned = !!value;
   const isClickable = signatory.directSign === true;
+
+  const handleClick = () => {
+    if (!isClickable || isSigned) return;
+    if (!hasVerificationPhoto) {
+      if (push) push("Customer verification photo is required before completing the inspection.", "error");
+      return;
+    }
+    setOpen(true);
+  };
 
   return (
     <>
       <div className="relative">
         <div
-          onClick={() => {
-            if (isClickable && !isSigned) setOpen(true);
-          }}
+          onClick={handleClick}
           className={`w-full rounded-2xl p-3.5 text-left transition-all duration-150 relative ${
             isSigned
               ? "border border-emerald-300 bg-emerald-50/60 shadow-xs cursor-default"
               : isClickable
-              ? "border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/60 cursor-pointer group shadow-xs hover:border-blue-400"
+              ? hasVerificationPhoto
+                ? "border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/60 cursor-pointer group shadow-xs hover:border-blue-400"
+                : "border-2 border-dashed border-amber-300 bg-amber-50/40 cursor-pointer group shadow-xs hover:border-amber-400"
               : "border border-slate-200 bg-slate-100/80 cursor-not-allowed opacity-80"
           }`}
         >
@@ -364,7 +540,9 @@ function SignatureBox({ signatory, value, onSign }) {
             <div className="flex flex-col items-center justify-center h-20 text-blue-600">
               <PenTool size={20} className="mb-1.5 group-hover:scale-110 transition-transform" />
               <span className="font-body text-xs font-bold">Click to Sign</span>
-              <span className="font-body text-[10px] text-blue-500 font-medium">Direct Signature</span>
+              <span className="font-body text-[10px] text-blue-500 font-medium">
+                {hasVerificationPhoto ? "Direct Signature" : "Photo Required First"}
+              </span>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-20 text-slate-500">
@@ -439,7 +617,7 @@ function StatusSegmented({ value, onChange }) {
 /* ---------------------------------------------------------------------- */
 /* Fail detail expansion                                                   */
 /* ---------------------------------------------------------------------- */
-function FailDetails({ cell, onUpdate }) {
+function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -450,7 +628,8 @@ function FailDetails({ cell, onUpdate }) {
       const room = Math.max(0, 4 - existing.length);
       const arr = Array.from(files).slice(0, room);
       const compressed = await Promise.all(arr.map((f) => compressImage(f)));
-      onUpdate({ photos: [...existing, ...compressed.map((dataUrl) => ({ id: Math.random().toString(36).slice(2), dataUrl }))] });
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'fail', dataUrl, itemId, areaKey)));
+      onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
     } finally {
       setBusy(false);
     }
@@ -537,6 +716,55 @@ function FailDetails({ cell, onUpdate }) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Pass photos (reuses same compressImage + storage pattern as FailDetails) */
+/* ---------------------------------------------------------------------- */
+function PassPhotos({ cell, onUpdate, inspectionId, itemId, areaKey }) {
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleFiles(files) {
+    setBusy(true);
+    try {
+      const existing = cell.photos || [];
+      const room = Math.max(0, 4 - existing.length);
+      const arr = Array.from(files).slice(0, room);
+      const compressed = await Promise.all(arr.map((f) => compressImage(f)));
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'pass', dataUrl, itemId, areaKey)));
+      onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2 shadow-sm" style={{ animation: "fadein .2s cubic-bezier(0.16, 1, 0.3, 1)" }}>
+      <div className="flex items-center gap-2 text-emerald-700 font-semibold text-xs uppercase tracking-wider">
+        <Camera size={14} /> Pass Photos (Optional)
+      </div>
+      <div className="flex flex-wrap gap-2.5">
+        {(cell.photos || []).map((p) => (
+          <div key={p.id} className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-sm group">
+            <img src={p.dataUrl} className="w-full h-full object-cover" alt="Pass capture" />
+            <button onClick={() => onUpdate({ photos: cell.photos.filter((x) => x.id !== p.id) })}
+              className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <Trash2 size={16} className="text-white" />
+            </button>
+          </div>
+        ))}
+        {(cell.photos || []).length < 4 && (
+          <button onClick={() => fileRef.current?.click()} disabled={busy}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-emerald-200 bg-white/80 hover:bg-emerald-50 flex flex-col items-center justify-center text-emerald-500 transition-colors gap-1 shadow-xs">
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <><Camera size={18} /><span className="text-[10px] font-semibold">Add Photo</span></>}
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" multiple capture="environment" className="hidden"
+          onChange={(e) => e.target.files.length && handleFiles(e.target.files)} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* Item row                                                                */
 /* ---------------------------------------------------------------------- */
 function ItemRow({ item, areaKey, data, updateCell }) {
@@ -546,13 +774,14 @@ function ItemRow({ item, areaKey, data, updateCell }) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <span className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 font-mono text-xs flex items-center justify-center font-bold shrink-0 border border-blue-100 group-hover:scale-105 transition-transform">
-            {String(item.id).padStart(2, "0")}
+            {String(item.id).padStart(2, "00")}
           </span>
           <span className="font-body font-semibold text-slate-800 text-sm sm:text-base">{item.label}</span>
         </div>
         <StatusSegmented value={cell.status} onChange={(s) => updateCell(item.id, areaKey, { status: s })} />
       </div>
-      {cell.status === "fail" && <FailDetails cell={cell} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
+      {cell.status === "fail" && <FailDetails cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
+      {cell.status === "pass" && <PassPhotos cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
       {cell.status && cell.status !== "fail" && (
         <div className="mt-2 pt-2 border-t border-slate-100">
           <input value={cell.notes || ""} onChange={(e) => updateCell(item.id, areaKey, { notes: e.target.value })} placeholder="Add a note for this item (optional)…"
@@ -721,9 +950,15 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [showDrop, setShowDrop] = useState(false);
   const [showResume, setShowResume] = useState(false);
   const [resumeId, setResumeId] = useState("");
-  const [id, setId] = useState("");
-  const [nowDate, setNowDate] = useState("");
-  const [nowTime, setNowTime] = useState("");
+  const [id, setId] = useState(() => genInspectionId());
+  const [nowDate, setNowDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().slice(0, 10);
+  });
+  const [nowTime, setNowTime] = useState(() => {
+    const d = new Date();
+    return d.toTimeString().slice(0, 5);
+  });
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
@@ -738,7 +973,6 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [verifyingPortalPin, setVerifyingPortalPin] = useState(false);
 
   useEffect(() => {
-    setId(genInspectionId());
     const d = new Date();
     setNowDate(d.toISOString().slice(0, 10));
     setNowTime(d.toTimeString().slice(0, 5));
@@ -773,7 +1007,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
         setShowPasswordModal(false);
         setPassword("");
         setPasswordError("");
-        onStart(project, unit, inspectionType, id, verifiedPin);
+        await onStart(project, unit, inspectionType, id, verifiedPin);
       } else {
         setPasswordError(data.error || "Incorrect password. Please try again.");
       }
@@ -860,10 +1094,19 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
             ))}
           </div>
 
-          {/* Rotating inspection stamp */}
-          <div className="absolute -bottom-10 -right-10 w-56 h-56 opacity-[0.14]">
-            <Compass size={224} className="spin-slow" strokeWidth={0.75} />
+          {/* Watermark compass decoration — slow rotating */}
+          <div
+            className="absolute -bottom-8 -right-8 w-56 h-56 xl:w-64 xl:h-64 opacity-15 pointer-events-none"
+            style={{ animation: "compassSpin 40s linear infinite", transformOrigin: "center" }}
+          >
+            <Compass className="w-full h-full text-white" strokeWidth={1} />
           </div>
+          <style>{`
+            @keyframes compassSpin {
+              from { transform: rotate(0deg); }
+              to   { transform: rotate(360deg); }
+            }
+          `}</style>
         </div>
 
         {/* Form panel */}
@@ -1218,17 +1461,24 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
   const dataRef = useRef(data);
   dataRef.current = data;
 
-  const updateField = (patch) => setData((d) => ({ ...d, ...patch, updatedAt: new Date().toISOString() }));
+  const updateField = (patch) => setData((d) => (d ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
 
   const updateCell = (itemId, areaKey, patch) => {
     setData((d) => {
+      if (!d) return d;
+      const safeCells = d.cells || {};
       const key = cellKey(itemId, areaKey);
-      const prev = d.cells[key] || { status: null };
+      const prev = safeCells[key] || { status: null };
       const next = { ...prev, ...patch };
       if (patch.status && patch.status !== "fail") {
-        delete next.remarks; delete next.priority; delete next.photos; delete next.assignedTo; delete next.targetDate; delete next.voiceNote;
+        // Clear fail-specific fields but preserve photos (pass also uses photos)
+        delete next.remarks; delete next.priority; delete next.assignedTo; delete next.targetDate; delete next.voiceNote;
       }
-      return { ...d, cells: { ...d.cells, [key]: next }, updatedAt: new Date().toISOString() };
+      if (patch.status && patch.status !== "pass" && patch.status !== "fail") {
+        // For N/A and null, also clear photos
+        delete next.photos;
+      }
+      return { ...d, cells: { ...safeCells, [key]: next }, updatedAt: new Date().toISOString() };
     });
   };
 
@@ -1245,16 +1495,32 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     return { passed, failed, na, total, completed, pct: Math.round((completed / total) * 100) };
   }, [data]);
 
+  const [activePasscode, setActivePasscode] = useState(siteEngineerPasscode || "");
+  const [showSubmitPinModal, setShowSubmitPinModal] = useState(false);
+  const [submitPin, setSubmitPin] = useState("");
+  const [submitPinError, setSubmitPinError] = useState("");
+  const [submittingWithPin, setSubmittingWithPin] = useState(false);
+
+  useEffect(() => {
+    if (siteEngineerPasscode) {
+      setActivePasscode(siteEngineerPasscode);
+    }
+  }, [siteEngineerPasscode]);
+
   // Autosave: debounce writes to the /api/draft route (backed by the Google Sheet).
   useEffect(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    const pin = activePasscode || siteEngineerPasscode;
+    if (!pin || !dataRef.current || !dataRef.current.inspectionId) return;
+
     saveTimer.current = setTimeout(async () => {
       setSaveState("saving");
       try {
+        const payload = { ...dataRef.current, passcode: pin };
         const res = await fetch("/api/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...dataRef.current, passcode: siteEngineerPasscode }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -1262,13 +1528,13 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
         }
         setSaveState("saved");
       } catch (e) {
+        console.warn("[autosave] Background draft save warning:", e.message);
         setSaveState("error");
-        push(e.message || "Couldn't save draft to Google Sheets.", "error");
       }
-    }, 900);
+    }, 1000);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, activePasscode]);
 
   const visibleItems = ITEMS.filter((item) => {
     if (query && !item.label.toLowerCase().includes(query.toLowerCase())) return false;
@@ -1280,15 +1546,20 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     return true;
   });
 
-  const canSubmit = true;
+  const canSubmit = !!(data.customerVerificationPhoto);
 
-  async function handleManualSave() {
+  async function handleManualSave(customPin) {
+    const pin = customPin || activePasscode || siteEngineerPasscode;
+    if (!pin) {
+      setShowSubmitPinModal(true);
+      return;
+    }
     setSaveState("saving");
     try {
       const res = await fetch("/api/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, passcode: siteEngineerPasscode }),
+        body: JSON.stringify({ ...data, passcode: pin }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1302,22 +1573,40 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     }
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(customPin) {
+    const pin = customPin || activePasscode || siteEngineerPasscode;
+    if (!pin || pin.length !== 6) {
+      setSubmitPinError("");
+      setShowSubmitPinModal(true);
+      return;
+    }
+
+    setSubmittingWithPin(true);
     try {
       const res = await fetch("/api/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, passcode: siteEngineerPasscode }),
+        body: JSON.stringify({ ...data, passcode: pin }),
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          setShowSubmitPinModal(true);
+          setSubmitPinError(body.error || "Invalid 6-digit password. Please re-enter.");
+          return;
+        }
         throw new Error(body.error || "Submit failed");
       }
+      setActivePasscode(pin);
+      setShowSubmitPinModal(false);
+      setSubmitPin("");
       updateField({ status: "submitted" });
       push("Inspection submitted successfully.", "success");
       onSubmitted();
     } catch (e) {
       push(e.message || "Couldn't submit inspection.", "error");
+    } finally {
+      setSubmittingWithPin(false);
     }
   }
 
@@ -1608,6 +1897,9 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
           </label>
         </div>
 
+        {/* Customer Verification Photo Card */}
+        <CustomerVerificationPhoto data={data} updateField={updateField} push={push} />
+
         {/* Signatures Card */}
         <div className="bg-white rounded-3xl border border-slate-200/80 p-6 relative tick print-break shadow-sm">
           <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
@@ -1625,6 +1917,8 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
                 key={s.key}
                 signatory={s}
                 value={data.signatures[s.key]}
+                hasVerificationPhoto={!!data.customerVerificationPhoto}
+                push={push}
                 onSign={(key, dataUrl) => updateField({ signatures: { ...data.signatures, [key]: dataUrl } })}
               />
             ))}
@@ -1636,7 +1930,9 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
           <div>
             <div className="font-display font-bold text-sm text-slate-900">Ready to Submit</div>
             <div className="font-body text-xs text-slate-500">
-              Form can be submitted anytime — no mandatory fields required.
+              {!canSubmit
+                ? "Customer verification photo is required before completing the inspection."
+                : "All requirements met — ready to submit."}
             </div>
           </div>
 
@@ -1694,6 +1990,72 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
                 <JointInspectionPrintDoc data={data} />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Submit PIN Confirmation Modal */}
+      {showSubmitPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 relative" style={{ animation: "popin .18s ease" }}>
+            <button
+              onClick={() => setShowSubmitPinModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+            >
+              <X size={20} />
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4 border border-blue-100">
+              <Lock size={22} />
+            </div>
+            <h3 className="font-display font-bold text-lg text-slate-900 mb-1">Site Engineer Verification</h3>
+            <p className="font-body text-xs text-slate-500 mb-4">
+              Enter the 6-digit Site Engineer password to submit this inspection.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSubmit(submitPin.trim());
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="font-body text-xs font-bold text-slate-700 mb-1.5 block">
+                  6-Digit Password <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={submitPin}
+                  onChange={(e) => { setSubmitPin(e.target.value); setSubmitPinError(""); }}
+                  placeholder="••••••"
+                  className="w-full text-center tracking-[0.5em] text-lg font-mono rounded-xl border border-slate-200 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+                {submitPinError && (
+                  <p className="font-body text-xs text-rose-600 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle size={13} className="shrink-0" /> {submitPinError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowSubmitPinModal(false)}
+                  className="flex-1 font-body text-xs font-bold py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingWithPin || submitPin.trim().length !== 6}
+                  className="flex-1 font-body text-xs font-bold py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 text-white flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  {submittingWithPin ? <Loader2 size={14} className="animate-spin" /> : "Verify & Submit"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1785,19 +2147,28 @@ export default function InspectionApp() {
   const [screen, setScreen] = useState("landing");
   const [data, setData] = useState(null);
   const [siteEngineerPasscode, setSiteEngineerPasscode] = useState("");
-  const [projects, setProjects] = useState({});
+  const [projects, setProjects] = useState(DEFAULT_PROJECT_UNITS);
   const [projectsError, setProjectsError] = useState(null);
   const [backend, setBackend] = useState(null);
   const [resuming, setResuming] = useState(false);
+  const [loadingInfo, setLoadingInfo] = useState(null);
   const { toasts, push } = useToasts();
 
   // Re-inspection state — holds pending start params & the found previous inspection
-  const [pendingStart, setPendingStart] = useState(null); // { project, unit, type, id }
+  const [pendingStart, setPendingStart] = useState(null); // { project, unit, type, id, verifiedPin }
   const [previousInspection, setPreviousInspection] = useState(null);
   const [showReInspectModal, setShowReInspectModal] = useState(false);
   const [checkingPrevious, setCheckingPrevious] = useState(false);
 
   useEffect(() => {
+    // Purge any legacy PINs stored in sessionStorage so they never show in DevTools Application tab
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("dac_site_pin");
+        sessionStorage.removeItem("dac_pin");
+      }
+    } catch {}
+
     (async () => {
       try {
         const res = await fetch("/api/projects");
@@ -1814,6 +2185,18 @@ export default function InspectionApp() {
   }, []);
 
   async function handleStart(project, unit, type, id, verifiedPin = "") {
+    if (verifiedPin) {
+      setSiteEngineerPasscode(verifiedPin);
+    }
+
+    setLoadingInfo({
+      project,
+      unit,
+      type,
+      title: "Initializing Joint Inspection",
+      subtitle: "Checking unit history & preparing room checklist matrix...",
+    });
+
     // Check if there's a previous inspection for this project+unit
     setCheckingPrevious(true);
     try {
@@ -1828,8 +2211,9 @@ export default function InspectionApp() {
       if (forUnit.length > 0) {
         // Found a previous inspection — ask user if they want to carry forward the checklist
         setPreviousInspection(forUnit[0]);
-        setPendingStart({ project, unit, type, id });
+        setPendingStart({ project, unit, type, id, verifiedPin });
         setShowReInspectModal(true);
+        setLoadingInfo(null);
         return;
       }
     } catch (e) {
@@ -1840,9 +2224,14 @@ export default function InspectionApp() {
     }
     // No previous inspection found — start blank
     _doStart(project, unit, type, id, null, verifiedPin);
+    setLoadingInfo(null);
   }
 
   function _doStart(project, unit, type, id, previousCells, verifiedPin = "") {
+    const pin = verifiedPin || siteEngineerPasscode;
+    if (pin) {
+      setSiteEngineerPasscode(pin);
+    }
     const fresh = freshInspection(project, unit, type);
     fresh.inspectionId = id;
     // If carrying forward checklist data, copy cells but strip signatures/approval state
@@ -1850,7 +2239,6 @@ export default function InspectionApp() {
       fresh.cells = { ...previousCells };
       fresh.previousInspectionRef = previousInspection?.inspectionId || null;
     }
-    if (verifiedPin) setSiteEngineerPasscode(verifiedPin);
     setData(fresh);
     setScreen("form");
     setShowReInspectModal(false);
@@ -1859,6 +2247,13 @@ export default function InspectionApp() {
   }
 
   async function handleResume(inspectionId) {
+    setLoadingInfo({
+      project: "",
+      unit: "",
+      type: "Resume Draft",
+      title: "Loading Saved Inspection Draft",
+      subtitle: "Fetching inspection records & photos from cloud database...",
+    });
     setResuming(true);
     try {
       const url = `/api/draft?inspectionId=${encodeURIComponent(inspectionId)}&passcode=${encodeURIComponent(siteEngineerPasscode)}`;
@@ -1872,6 +2267,7 @@ export default function InspectionApp() {
       push(e.message || "Couldn't find that draft.", "error");
     } finally {
       setResuming(false);
+      setLoadingInfo(null);
     }
   }
 
@@ -1906,6 +2302,15 @@ export default function InspectionApp() {
       )}
       {screen === "submitted" && data && (
         <SubmittedScreen data={data} onNew={() => { setData(null); setScreen("landing"); }} />
+      )}
+      {(loadingInfo || checkingPrevious || resuming) && (
+        <InspectionLoadingOverlay
+          project={loadingInfo?.project || ""}
+          unit={loadingInfo?.unit || ""}
+          inspectionType={loadingInfo?.type || ""}
+          title={loadingInfo?.title || "Initializing Inspection"}
+          subtitle={loadingInfo?.subtitle || "Connecting cloud database & loading checklist matrix..."}
+        />
       )}
       <ToastStack toasts={toasts} />
 
@@ -1972,13 +2377,13 @@ export default function InspectionApp() {
 
             <div className="flex gap-3">
               <button
-                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, null, siteEngineerPasscode)}
+                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, null, pendingStart.verifiedPin)}
                 className="flex-1 font-body text-sm font-bold py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors"
               >
                 Start Blank
               </button>
               <button
-                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, previousInspection.cells, siteEngineerPasscode)}
+                onClick={() => _doStart(pendingStart.project, pendingStart.unit, pendingStart.type, pendingStart.id, previousInspection.cells, pendingStart.verifiedPin)}
                 className="flex-1 font-body text-sm font-bold py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
               >
                 <ClipboardCheck size={16} /> Load Previous Checklist

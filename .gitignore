@@ -7,3 +7,6 @@ out
 .data
 *.log
 .DS_Store
+scratch/
+api-test.mjs
+orig_crane.txt

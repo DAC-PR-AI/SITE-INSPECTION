@@ -23,10 +23,12 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
+              "object-src 'none'",
+              "base-uri 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires unsafe-eval in dev
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob:",  // data: needed for signature canvas
+              "img-src 'self' data: blob: https://drive.google.com https://*.googleusercontent.com",
               "connect-src 'self'",
               "frame-ancestors 'none'",
             ].join("; "),

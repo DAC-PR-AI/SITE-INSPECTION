@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Building2, ShieldCheck, ArrowLeft, Search, CheckCircle2, XCircle,
+  ShieldCheck, ArrowLeft, Search, CheckCircle2, XCircle,
   Clock, Lock, FileText, Check, X, PenTool, AlertTriangle, RotateCcw,
-  Undo2, Eye, RefreshCw, UserCheck, ChevronRight, Filter, FileJson, FileDown,
-  KeyRound, Shield, Printer, CheckSquare, Layers, User
+  Eye, RefreshCw, UserCheck, Filter, FileDown,
+  KeyRound, Shield, Printer, CheckSquare, Layers, User, ChevronRight,
+  Building2, Hash, Calendar, AlertCircle
 } from "lucide-react";
 import WorkflowStepper from "./WorkflowStepper";
 import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
@@ -22,23 +23,147 @@ const ROLES = [
   "VP – HUG",
 ];
 
-export default function ApprovalPortal({ onExit, initialInspectionId = null, initialRole = "Admin", initialUserName = "Administrator", initialAuthenticated = true }) {
+/**
+ * Calculates workflow progression, responsible role, and pending action for any inspection
+ */
+export function getInspectionWorkflowInfo(inspection, selectedRole) {
+  if (!inspection) return { isPendingOnYou: false, displayStatus: "DRAFT", currentPendingRole: "Site Engineer", actionType: "view" };
+
+  const currentStatus = inspection.workflowStatus || inspection.status || "DRAFT";
+  const signatures = inspection.signatures || {};
+  const history = inspection.approvalHistory || [];
+  const lastHistory = history.length > 0 ? history[history.length - 1] : null;
+
+  const hasCustomer = !!signatures.customer;
+  const hasTechExec = !!signatures.technicalExecutive;
+  const bothParallelSigned = hasCustomer && hasTechExec;
+
+  // Determine current pending stage / role
+  let currentPendingRole = "Site Engineer";
+  let displayStatus = "Waiting";
+  let isCompleted = false;
+  let isRejected = false;
+
+  if (currentStatus === "COMPLETED") {
+    displayStatus = "Completed";
+    currentPendingRole = "None (Completed)";
+    isCompleted = true;
+  } else if (currentStatus === "REJECTED") {
+    displayStatus = "Rejected";
+    currentPendingRole = "Site Engineer (Re-inspection/Rectification)";
+    isRejected = true;
+  } else if (!hasCustomer && !hasTechExec) {
+    currentPendingRole = "Customer & Technical Executive";
+    displayStatus = "Parallel Signatures Pending";
+  } else if (!hasCustomer) {
+    currentPendingRole = "Customer";
+    displayStatus = "Customer Sign Pending";
+  } else if (!hasTechExec) {
+    currentPendingRole = "Technical Executive";
+    displayStatus = "Technical Executive Sign Pending";
+  } else if (["DRAFT", "SITE_ENGINEER_PENDING", "draft"].includes(currentStatus)) {
+    currentPendingRole = "Site Engineer";
+    displayStatus = "Site Engineer Review";
+  } else if (currentStatus === "QA_QC_PENDING") {
+    currentPendingRole = "QA/QC In-Charge";
+    displayStatus = "QA/QC Approval";
+  } else if (currentStatus === "PROJECT_MANAGER_PENDING") {
+    currentPendingRole = "Project Manager";
+    displayStatus = "Project Manager Approval";
+  } else if (currentStatus === "MANAGER_TECHNICAL_PENDING") {
+    currentPendingRole = "Manager Technical";
+    displayStatus = "Manager Technical Approval";
+  } else if (currentStatus === "GM_HUG_PENDING") {
+    currentPendingRole = "GM – HUG";
+    displayStatus = "GM – HUG Approval";
+  } else if (currentStatus === "VP_HUG_PENDING") {
+    currentPendingRole = "VP – HUG";
+    displayStatus = "VP – HUG Final Approval";
+  }
+
+  // Determine if action is pending on the currently selected role
+  let isPendingOnYou = false;
+  let actionLabel = "Review & Approve";
+  let actionButtonText = "REVIEW & APPROVE";
+  let actionRoleName = selectedRole;
+
+  if (selectedRole === "Customer" && !hasCustomer && !isCompleted && !isRejected) {
+    isPendingOnYou = true;
+    actionLabel = "Customer Signature Required";
+    actionButtonText = "SIGN";
+  } else if ((selectedRole === "Technical Executive" || selectedRole === "Technical") && !hasTechExec && !isCompleted && !isRejected) {
+    isPendingOnYou = true;
+    actionLabel = "Technical Executive Signature Required";
+    actionButtonText = "SIGN";
+  } else if (selectedRole === "Site Engineer" && ["DRAFT", "SITE_ENGINEER_PENDING", "draft", "REJECTED"].includes(currentStatus)) {
+    isPendingOnYou = true;
+    actionLabel = "Site Engineer Approval Required";
+    actionButtonText = "REVIEW & SIGN";
+  } else if ((selectedRole === "QA/QC In-Charge" || selectedRole === "QA/QC") && currentStatus === "QA_QC_PENDING") {
+    isPendingOnYou = true;
+    actionLabel = "QA/QC Approval Required";
+    actionButtonText = "REVIEW & SIGN";
+  } else if (selectedRole === "Project Manager" && currentStatus === "PROJECT_MANAGER_PENDING") {
+    isPendingOnYou = true;
+    actionLabel = "Project Manager Approval Required";
+    actionButtonText = "REVIEW & APPROVE";
+  } else if ((selectedRole === "Manager Technical" || selectedRole === "Manager – Technical") && currentStatus === "MANAGER_TECHNICAL_PENDING") {
+    isPendingOnYou = true;
+    actionLabel = "Manager Technical Approval Required";
+    actionButtonText = "REVIEW & APPROVE";
+  } else if ((selectedRole === "GM – HUG" || selectedRole === "GM - HUG") && currentStatus === "GM_HUG_PENDING") {
+    isPendingOnYou = true;
+    actionLabel = "GM – HUG Approval Required";
+    actionButtonText = "REVIEW & APPROVE";
+  } else if ((selectedRole === "VP – HUG" || selectedRole === "VP - HUG") && currentStatus === "VP_HUG_PENDING") {
+    isPendingOnYou = true;
+    actionLabel = "VP – HUG Approval Required";
+    actionButtonText = "REVIEW & APPROVE";
+  }
+
+  return {
+    isPendingOnYou,
+    actionLabel,
+    actionButtonText,
+    actionRoleName,
+    currentPendingRole,
+    displayStatus,
+    isCompleted,
+    isRejected,
+    bothParallelSigned,
+    hasCustomer,
+    hasTechExec,
+  };
+}
+
+export default function ApprovalPortal({
+  onExit,
+  initialInspectionId = null,
+  initialRole = "Admin",
+  initialUserName = "Administrator",
+  initialAuthenticated = true,
+}) {
   const [selectedRole, setSelectedRole] = useState(initialRole);
   const [userName, setUserName] = useState(initialUserName || (initialRole === "Admin" ? "Administrator" : initialRole));
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedInspection, setSelectedInspection] = useState(null);
-  const [filterMode, setFilterMode] = useState("all"); // all | draft | in_progress | completed | rejected
+
+  // Filters
+  const [filterTab, setFilterTab] = useState("all"); // all | pending_on_you | waiting | completed | rejected
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterProject, setFilterProject] = useState("ALL");
+  const [filterStatusDropdown, setFilterStatusDropdown] = useState("ALL");
+  const [filterPendingRole, setFilterPendingRole] = useState("ALL");
 
   // Role Login & Session Auth state
-  const [authenticatedRoles, setAuthenticatedRoles] = useState(initialAuthenticated ? { [initialRole]: true } : {}); // { [role]: true }
+  const [authenticatedRoles, setAuthenticatedRoles] = useState(initialAuthenticated ? { [initialRole]: true } : {});
   const [showRoleAuthModal, setShowRoleAuthModal] = useState(!initialAuthenticated);
   const [roleAuthPin, setRoleAuthPin] = useState("");
   const [roleAuthError, setRoleAuthError] = useState("");
   const [roleAuthLoading, setRoleAuthLoading] = useState(false);
 
-  // Signature / Approval / Rejection Modal states
+  // Two-Step Signing / Approval / Rejection Modal states
   const [showSignModal, setShowSignModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -51,7 +176,6 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
   const isAdmin = selectedRole === "Admin";
 
   useEffect(() => {
-    // If switching to a new role, check if already authenticated
     if (!authenticatedRoles[selectedRole]) {
       setShowRoleAuthModal(true);
       setRoleAuthPin("");
@@ -59,6 +183,12 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
     }
     fetchQueue();
   }, [selectedRole]);
+
+  useEffect(() => {
+    if (initialInspectionId) {
+      handleOpenInspection({ inspectionId: initialInspectionId });
+    }
+  }, [initialInspectionId]);
 
   async function fetchQueue() {
     setLoading(true);
@@ -72,6 +202,26 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
       console.error("Failed to load queue:", e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleOpenInspection(i) {
+    if (!i) {
+      setSelectedInspection(null);
+      return;
+    }
+    // Optimistically set the inspection summary immediately
+    setSelectedInspection(i);
+
+    // Fetch full inspection object including real base64 signature images from the Google Sheets Signatures tab
+    try {
+      const res = await fetch(`/api/approval?inspectionId=${encodeURIComponent(i.inspectionId)}`);
+      const body = await res.json();
+      if (body.inspection) {
+        setSelectedInspection(body.inspection);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch full inspection signatures:", err);
     }
   }
 
@@ -195,36 +345,76 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
     }
   }
 
-  const filteredInspections = inspections.filter((i) => {
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const matches =
-        (i.inspectionId || "").toLowerCase().includes(q) ||
-        (i.projectName || "").toLowerCase().includes(q) ||
-        (i.unitNumber || "").toLowerCase().includes(q) ||
-        (i.inspectionType || "").toLowerCase().includes(q) ||
-        (i.customerName || "").toLowerCase().includes(q);
-      if (!matches) return false;
-    }
+  // Extract unique projects for Admin filter
+  const uniqueProjects = useMemo(() => {
+    const set = new Set();
+    inspections.forEach((i) => {
+      if (i.projectName) set.add(i.projectName);
+    });
+    return Array.from(set).sort();
+  }, [inspections]);
 
-    const st = i.workflowStatus || i.status || "DRAFT";
-    if (filterMode === "completed") return st === "COMPLETED";
-    if (filterMode === "rejected") return st === "REJECTED";
-    if (filterMode === "draft") return st === "DRAFT" || st === "draft";
-    if (filterMode === "in_progress") return !["COMPLETED", "REJECTED", "DRAFT", "draft"].includes(st);
-    return true;
-  });
+  // Enhanced inspection mapping with calculated workflow info
+  const enhancedInspections = useMemo(() => {
+    return inspections.map((i) => ({
+      ...i,
+      _wf: getInspectionWorkflowInfo(i, selectedRole),
+    }));
+  }, [inspections, selectedRole]);
+
+  // Count pending on current user
+  const pendingOnYouCount = useMemo(() => {
+    return enhancedInspections.filter((i) => i._wf.isPendingOnYou).length;
+  }, [enhancedInspections]);
+
+  // Filtered Inspections
+  const filteredInspections = useMemo(() => {
+    return enhancedInspections.filter((i) => {
+      // Search Query filter
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matches =
+          (i.inspectionId || "").toLowerCase().includes(q) ||
+          (i.projectName || "").toLowerCase().includes(q) ||
+          (i.unitNumber || "").toLowerCase().includes(q) ||
+          (i.customerName || "").toLowerCase().includes(q) ||
+          (i.inspectionType || "").toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+
+      // Quick Tab Filter
+      if (filterTab === "pending_on_you" && !i._wf.isPendingOnYou) return false;
+      if (filterTab === "waiting" && (i._wf.isPendingOnYou || i._wf.isCompleted || i._wf.isRejected)) return false;
+      if (filterTab === "completed" && !i._wf.isCompleted) return false;
+      if (filterTab === "rejected" && !i._wf.isRejected) return false;
+
+      // Admin Dropdown Filters
+      if (isAdmin) {
+        if (filterProject !== "ALL" && i.projectName !== filterProject) return false;
+        if (filterStatusDropdown === "COMPLETED" && !i._wf.isCompleted) return false;
+        if (filterStatusDropdown === "REJECTED" && !i._wf.isRejected) return false;
+        if (filterStatusDropdown === "IN_PROGRESS" && (i._wf.isCompleted || i._wf.isRejected)) return false;
+        if (filterPendingRole !== "ALL" && !i._wf.currentPendingRole.toLowerCase().includes(filterPendingRole.toLowerCase())) return false;
+      }
+
+      return true;
+    });
+  }, [enhancedInspections, searchQuery, filterTab, filterProject, filterStatusDropdown, filterPendingRole, isAdmin]);
+
+  // Inspection currently selected's calculated workflow state
+  const selectedWf = selectedInspection ? getInspectionWorkflowInfo(selectedInspection, selectedRole) : null;
 
   return (
     <>
+      {/* Standalone Printable Document rendered for @media print */}
       {selectedInspection && (
         <div className="print-only">
           <JointInspectionPrintDoc data={selectedInspection} />
         </div>
       )}
 
-      <div className="no-print min-h-screen bg-slate-50 text-slate-900 pb-20">
-        {/* Top Navigation Bar */}
+      <div className="no-print min-h-screen bg-slate-50/70 text-slate-900 pb-20">
+        {/* Top Minimal Navigation Bar */}
         <header className="sticky top-0 z-30 bg-slate-900 text-white shadow-md border-b border-slate-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
@@ -234,20 +424,22 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
               <div>
                 <h1 className="font-display font-bold text-base sm:text-lg tracking-tight">DAC Developers</h1>
                 <p className="font-mono text-[10px] text-blue-400 uppercase tracking-widest">
-                  {isAdmin ? "Admin Oversight & Reporting Portal" : "Inspection Approval Portal"}
+                  {isAdmin ? "Admin Oversight Portal" : "Inspection Approval Portal"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
+              {/* Role Selector */}
               <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
                 <span className="font-body text-xs text-slate-400 font-medium">Role:</span>
                 <select
                   value={selectedRole}
                   onChange={(e) => {
-                    setSelectedRole(e.target.value);
-                    if (e.target.value === "Admin") setUserName("Administrator");
-                    else setUserName(e.target.value);
+                    const r = e.target.value;
+                    setSelectedRole(r);
+                    if (r === "Admin") setUserName("Administrator");
+                    else setUserName(r);
                   }}
                   className="bg-transparent font-body font-bold text-xs text-white focus:outline-none cursor-pointer"
                 >
@@ -259,8 +451,9 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
                 </select>
               </div>
 
+              {/* User Name */}
               <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
-                <span className="font-body text-xs text-slate-400 font-medium">User:</span>
+                <User size={13} className="text-slate-400" />
                 <input
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
@@ -271,7 +464,7 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
 
               <button
                 onClick={onExit}
-                className="text-xs font-body font-semibold px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+                className="text-xs font-body font-semibold px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
               >
                 Exit Portal
               </button>
@@ -279,21 +472,25 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-8 py-7">
           {!selectedInspection ? (
-            /* Inspections Queue View */
-            <div className="space-y-6">
-              {/* Header Banner */}
-              <div className="flex items-center justify-between gap-4 flex-wrap bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
+            /* ========================================================================= */
+            /* VIEW 1: LINE-BY-LINE ROLE-AWARE INSPECTION LIST                          */
+            /* ========================================================================= */
+            <div className="space-y-5">
+              {/* Page Title & Summary */}
+              <div className="flex items-center justify-between gap-4 flex-wrap bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs">
                 <div>
                   <h2 className="font-display font-bold text-xl text-slate-900 flex items-center gap-2.5">
-                    {isAdmin ? <Shield className="text-purple-600" size={26} /> : <ShieldCheck className="text-blue-600" size={26} />}
-                    <span>{isAdmin ? "Admin Master Inspection View" : `${selectedRole} Queue`}</span>
+                    {isAdmin ? <Shield className="text-purple-600" size={24} /> : <ShieldCheck className="text-blue-600" size={24} />}
+                    <span>{isAdmin ? "Admin Master Inspection View" : `${selectedRole} Approval Queue`}</span>
                   </h2>
                   <p className="font-body text-xs text-slate-500 mt-1">
                     {isAdmin
-                      ? "Complete oversight of all joint inspections across all stages, statuses, drafts, and submissions."
-                      : `Reviewing pending tasks and role-restricted signatures for ${selectedRole}.`}
+                      ? "Complete live tracking of all joint inspections across all units, roles, and approval stages."
+                      : pendingOnYouCount > 0
+                      ? `You have ${pendingOnYouCount} inspection${pendingOnYouCount > 1 ? "s" : ""} requiring your immediate action.`
+                      : `All inspections assigned to ${selectedRole} are currently up to date.`}
                   </p>
                 </div>
 
@@ -303,102 +500,244 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
                     className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors shadow-xs"
                     title="Refresh Queue"
                   >
-                    <RefreshCw size={16} />
+                    <RefreshCw size={15} className={loading ? "animate-spin text-blue-600" : ""} />
                   </button>
                 </div>
               </div>
 
-              {/* Filters & Search */}
-              <div className="flex items-center justify-between gap-3 flex-wrap bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
-                <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl flex-wrap">
-                  {[
-                    { key: "all", label: "All Records" },
-                    { key: "draft", label: "Drafts" },
-                    { key: "in_progress", label: "In Progress" },
-                    { key: "completed", label: "Completed" },
-                    { key: "rejected", label: "Rejected" },
-                  ].map(({ key, label }) => (
-                    <button
-                      key={key}
-                      onClick={() => setFilterMode(key)}
-                      className={`text-xs font-body font-semibold px-3.5 py-1.5 rounded-lg transition-all ${
-                        filterMode === key
-                          ? "bg-white shadow-xs text-blue-700 font-bold"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+              {/* Filter Tabs & Search Bar */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  {/* Status Filter Tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl flex-wrap">
+                    {[
+                      { key: "all", label: `All (${enhancedInspections.length})` },
+                      {
+                        key: "pending_on_you",
+                        label: `Pending on You`,
+                        badge: pendingOnYouCount,
+                      },
+                      { key: "waiting", label: "Waiting" },
+                      { key: "completed", label: "Completed" },
+                      { key: "rejected", label: "Rejected" },
+                    ].map(({ key, label, badge }) => (
+                      <button
+                        key={key}
+                        onClick={() => setFilterTab(key)}
+                        className={`text-xs font-body font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                          filterTab === key
+                            ? "bg-white shadow-xs text-blue-700 font-bold"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        <span>{label}</span>
+                        {badge > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-600 text-white animate-pulse">
+                            {badge}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative min-w-[240px] flex-1 sm:flex-initial">
+                    <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search ID, Unit, Project, Customer..."
+                      className="w-full text-xs font-body rounded-xl border border-slate-200 pl-9 p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-slate-50/50"
+                    />
+                  </div>
                 </div>
 
-                <div className="relative min-w-[240px]">
-                  <Search size={15} className="absolute left-3 top-3 text-slate-400" />
-                  <input
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search ID, Project, Unit, Type..."
-                    className="w-full text-xs font-body rounded-xl border border-slate-200 pl-9 p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-slate-50/50"
-                  />
-                </div>
+                {/* Additional Admin Multi-Filters */}
+                {isAdmin && (
+                  <div className="pt-2 border-t border-slate-100 flex items-center gap-3 flex-wrap text-xs font-body">
+                    <span className="font-bold text-slate-500 flex items-center gap-1">
+                      <Filter size={12} /> Admin Filters:
+                    </span>
+
+                    {/* Project Filter */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Project:</span>
+                      <select
+                        value={filterProject}
+                        onChange={(e) => setFilterProject(e.target.value)}
+                        className="font-bold text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none"
+                      >
+                        <option value="ALL">All Projects</option>
+                        {uniqueProjects.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Status Filter */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Status:</span>
+                      <select
+                        value={filterStatusDropdown}
+                        onChange={(e) => setFilterStatusDropdown(e.target.value)}
+                        className="font-bold text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none"
+                      >
+                        <option value="ALL">All Statuses</option>
+                        <option value="IN_PROGRESS">In Progress</option>
+                        <option value="COMPLETED">Completed</option>
+                        <option value="REJECTED">Rejected</option>
+                      </select>
+                    </div>
+
+                    {/* Pending Role Filter */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Pending Role:</span>
+                      <select
+                        value={filterPendingRole}
+                        onChange={(e) => setFilterPendingRole(e.target.value)}
+                        className="font-bold text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none"
+                      >
+                        <option value="ALL">All Pending Roles</option>
+                        <option value="Customer">Customer Sign</option>
+                        <option value="Technical Executive">Technical Executive</option>
+                        <option value="Site Engineer">Site Engineer</option>
+                        <option value="QA/QC">QA / QC In-Charge</option>
+                        <option value="Project Manager">Project Manager</option>
+                        <option value="Manager Technical">Manager Technical</option>
+                        <option value="GM – HUG">GM – HUG</option>
+                        <option value="VP – HUG">VP – HUG</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Queue Table */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+              {/* Line-by-Line Inspection Listing Table */}
+              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 {loading ? (
-                  <div className="p-12 text-center text-slate-500 font-body text-sm">
-                    Loading inspections data...
+                  <div className="p-12 text-center text-slate-500 font-body text-sm flex items-center justify-center gap-2">
+                    <RefreshCw size={16} className="animate-spin text-blue-600" />
+                    <span>Loading inspections...</span>
                   </div>
                 ) : filteredInspections.length === 0 ? (
                   <div className="p-12 text-center bg-slate-50/50">
-                    <p className="font-body text-sm font-semibold text-slate-600 mb-1">No inspections matching current filter</p>
+                    <p className="font-body text-sm font-semibold text-slate-700 mb-1">No inspections matching current filter</p>
                     <p className="font-body text-xs text-slate-400">Inspections will appear here as they are created and reviewed.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs font-body border-collapse">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-700">
-                          <th className="p-4 font-bold">Inspection ID</th>
-                          <th className="p-4 font-bold">Inspection Type</th>
-                          <th className="p-4 font-bold">Project</th>
-                          <th className="p-4 font-bold">Unit</th>
-                          <th className="p-4 font-bold">Customer</th>
-                          <th className="p-4 font-bold">Status</th>
-                          <th className="p-4 font-bold">Last Updated</th>
-                          <th className="p-4 font-bold text-right">Action</th>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                          <th className="p-3.5 sm:p-4">Inspection ID</th>
+                          <th className="p-3.5 sm:p-4">Project</th>
+                          <th className="p-3.5 sm:p-4">Unit</th>
+                          <th className="p-3.5 sm:p-4">Date</th>
+                          <th className="p-3.5 sm:p-4">Workflow Status</th>
+                          <th className="p-3.5 sm:p-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredInspections.map((i) => (
-                          <tr key={i.inspectionId} className="hover:bg-blue-50/40 transition-colors">
-                            <td className="p-4 font-mono font-bold text-blue-700">{i.inspectionId}</td>
-                            <td className="p-4">
-                              <span className="font-body font-bold text-[11px] bg-slate-100 text-slate-800 px-2.5 py-1 rounded-md border border-slate-200 whitespace-nowrap">
-                                {i.inspectionType || "INTERIOR JOINT INSPECTION"}
-                              </span>
-                            </td>
-                            <td className="p-4 font-semibold text-slate-800">{i.projectName}</td>
-                            <td className="p-4 font-bold text-blue-700">{i.unitNumber}</td>
-                            <td className="p-4 text-slate-600 font-medium">{i.customerName || "—"}</td>
-                            <td className="p-4">
-                              <StatusBadge status={i.workflowStatus || i.status} />
-                            </td>
-                            <td className="p-4 text-slate-500 font-mono text-[11px]">
-                              {new Date(i.updatedAt || Date.now()).toLocaleDateString()}
-                            </td>
-                            <td className="p-4 text-right">
-                              <button
-                                onClick={() => setSelectedInspection(i)}
-                                className={`font-body text-xs font-bold px-4 py-2 rounded-xl text-white shadow-xs transition-all flex items-center gap-1.5 ml-auto ${
-                                  isAdmin ? "bg-purple-600 hover:bg-purple-700" : "bg-blue-600 hover:bg-blue-700"
-                                }`}
-                              >
-                                <Eye size={14} /> {isAdmin ? "Inspect & Print" : "Review"}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {filteredInspections.map((i) => {
+                          const wf = i._wf;
+                          return (
+                            <tr
+                              key={i.inspectionId}
+                              onClick={() => handleOpenInspection(i)}
+                              className={`transition-colors cursor-pointer ${
+                                wf.isPendingOnYou
+                                  ? "bg-blue-50/40 hover:bg-blue-100/50"
+                                  : "hover:bg-slate-50/80"
+                              }`}
+                            >
+                              {/* Inspection ID */}
+                              <td className="p-3.5 sm:p-4">
+                                <div className="font-mono font-bold text-blue-700 flex items-center gap-1.5">
+                                  {wf.isPendingOnYou && (
+                                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping inline-block" />
+                                  )}
+                                  <span>{i.inspectionId}</span>
+                                </div>
+                                <div className="font-body text-[10px] text-slate-400 mt-0.5">
+                                  {i.inspectionType || "INTERIOR JOINT INSPECTION"}
+                                </div>
+                              </td>
+
+                              {/* Project */}
+                              <td className="p-3.5 sm:p-4 font-semibold text-slate-800">
+                                {i.projectName}
+                              </td>
+
+                              {/* Unit */}
+                              <td className="p-3.5 sm:p-4 font-bold text-blue-700">
+                                {i.unitNumber}
+                              </td>
+
+                              {/* Date */}
+                              <td className="p-3.5 sm:p-4 text-slate-500 font-mono text-[11px]">
+                                {i.inspectionDate || new Date(i.updatedAt || Date.now()).toLocaleDateString("en-GB")}
+                              </td>
+
+                              {/* Workflow Status with "Pending on You" Priority */}
+                              <td className="p-3.5 sm:p-4">
+                                {wf.isPendingOnYou ? (
+                                  <div>
+                                    <span className="font-body font-bold text-xs px-3 py-1 rounded-full bg-blue-600 text-white shadow-xs inline-flex items-center gap-1.5 animate-pulse">
+                                      <Clock size={12} className="animate-spin" /> Pending on You
+                                    </span>
+                                    <p className="font-body text-[10px] text-blue-800 font-semibold mt-1">
+                                      {wf.actionLabel}
+                                    </p>
+                                  </div>
+                                ) : wf.isCompleted ? (
+                                  <span className="font-body font-bold text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                    <CheckCircle2 size={13} /> Completed
+                                  </span>
+                                ) : wf.isRejected ? (
+                                  <span className="font-body font-bold text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
+                                    <XCircle size={13} /> Rejected
+                                  </span>
+                                ) : (
+                                  <div>
+                                    <span className="font-body font-semibold text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 inline-block">
+                                      Waiting
+                                    </span>
+                                    <p className="font-body text-[11px] text-slate-500 mt-0.5">
+                                      Currently with: <b>{wf.currentPendingRole}</b>
+                                    </p>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Action Button */}
+                              <td className="p-3.5 sm:p-4 text-right">
+                                {wf.isPendingOnYou ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenInspection(i);
+                                    }}
+                                    className="font-body text-xs font-bold px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 ml-auto transition-transform active:scale-95"
+                                  >
+                                    <PenTool size={13} /> {wf.actionButtonText}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenInspection(i);
+                                    }}
+                                    className="font-body text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 flex items-center gap-1 ml-auto transition-colors"
+                                  >
+                                    <Eye size={13} /> View
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -406,25 +745,27 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
               </div>
             </div>
           ) : (
-            /* Inspection Review & Detail Screen */
-            <div className="space-y-6 rise">
+            /* ========================================================================= */
+            /* VIEW 2: INSPECTION DETAIL & APPROVAL TIMELINE TRACKING SCREEN             */
+            /* ========================================================================= */
+            <div className="space-y-6 animate-in fade-in zoom-in-95 duration-150">
               {/* Review Header Bar */}
-              <div className="flex items-center justify-between gap-4 flex-wrap bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm">
+              <div className="flex items-center justify-between gap-4 flex-wrap bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-xs">
                 <button
                   onClick={() => setSelectedInspection(null)}
                   className="font-body text-xs font-bold px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-2 border border-slate-200 transition-colors"
                 >
-                  <ArrowLeft size={16} /> Back to Inspections
+                  <ArrowLeft size={15} /> Back to Inspections
                 </button>
 
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  {/* GENERATE PRINT ACTION: Exclusively available to Admin */}
-                  {isAdmin && (
+                  {/* GENERATE PDF ACTION: Available to Admin or completed inspection review */}
+                  {(isAdmin || selectedWf?.isCompleted) && (
                     <button
                       onClick={() => setShowPrintModal(true)}
-                      className="font-body text-xs font-bold px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 shadow-md shadow-purple-600/20 transition-all scale-[1.02]"
+                      className="font-body text-xs font-bold px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 shadow-md shadow-purple-600/20 transition-all scale-[1.02]"
                     >
-                      <Printer size={15} /> Generate Print / Official PDF
+                      <Printer size={14} /> Generate PDF / Print Official Form
                     </button>
                   )}
 
@@ -437,110 +778,147 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
                 </div>
               </div>
 
-              {/* Inspection Details Summary Card */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                  <h3 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
-                    <FileText size={20} className="text-blue-600" /> Inspection Record Overview
-                  </h3>
-                  {isAdmin && (
-                    <span className="text-[11px] font-bold font-body px-3 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
-                      Admin Oversight Mode (Full Access)
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60">
-                    <p className="font-body text-xs text-slate-500 mb-1">Project</p>
-                    <p className="font-body font-bold text-sm text-slate-900">{selectedInspection.projectName}</p>
+              {/* ACTION CALLOUT BANNER */}
+              {selectedWf?.isPendingOnYou ? (
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl sm:rounded-3xl p-5 sm:p-6 text-white shadow-lg shadow-blue-600/15 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping inline-block" />
+                      <span className="font-mono text-xs font-bold tracking-wider uppercase text-blue-100">
+                        Pending on You
+                      </span>
+                    </div>
+                    <h3 className="font-display font-extrabold text-lg sm:text-xl">
+                      {selectedWf.actionLabel}
+                    </h3>
+                    <p className="font-body text-xs text-blue-100">
+                      You are logged in as <b>{selectedRole}</b> ({userName}). Complete your review and sign-off below.
+                    </p>
                   </div>
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60">
-                    <p className="font-body text-xs text-slate-500 mb-1">Unit Number</p>
-                    <p className="font-body font-bold text-sm text-blue-700">{selectedInspection.unitNumber}</p>
-                  </div>
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60">
-                    <p className="font-body text-xs text-slate-500 mb-1">Customer Name</p>
-                    <p className="font-body font-bold text-sm text-slate-900">{selectedInspection.customerName || "—"}</p>
-                  </div>
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60">
-                    <p className="font-body text-xs text-slate-500 mb-1">Workflow Status</p>
-                    <StatusBadge status={selectedInspection.workflowStatus || selectedInspection.status} />
-                  </div>
-                </div>
-              </div>
 
-              {/* Workflow Stepper */}
-              <WorkflowStepper inspection={selectedInspection} />
-
-              {/* Full Checklist Detail */}
-              <DetailedChecklist inspection={selectedInspection} />
-
-              {/* Remarks & Declaration Details */}
-              <div className="grid sm:grid-cols-2 gap-6">
-                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-                  <h4 className="font-display font-bold text-base text-slate-900 mb-2 flex items-center gap-2">
-                    <PenTool size={16} className="text-blue-600" /> General Remarks & Notes
-                  </h4>
-                  <p className="font-body text-xs text-slate-700 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60 min-h-[70px] whitespace-pre-wrap">
-                    {selectedInspection.generalRemarks || "No general remarks specified."}
-                  </p>
-                </div>
-
-                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-                  <h4 className="font-display font-bold text-base text-slate-900 mb-2 flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-blue-600" /> Customer Declaration
-                  </h4>
-                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60 text-xs font-body text-slate-700 space-y-1">
-                    <p>Status: <b>{selectedInspection.declarationChecked ? "✓ Confirmed & Accepted" : "Pending Confirmation"}</b></p>
-                    <p>Interior Works Duration: <b>{selectedInspection.interiorDays || "30"} days</b></p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setRemarks("");
+                        setPasscode("");
+                        setActionError("");
+                        setShowRejectModal(true);
+                      }}
+                      className="font-body text-xs font-bold px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors flex items-center gap-1.5"
+                    >
+                      <XCircle size={15} /> Reject
+                    </button>
+                    <button
+                      onClick={() => {
+                        setRemarks("");
+                        setSignatureData("");
+                        setPasscode("");
+                        setActionError("");
+                        setShowSignModal(true);
+                      }}
+                      className="font-body text-xs font-bold px-6 py-2.5 rounded-xl bg-white text-blue-900 hover:bg-blue-50 shadow-md flex items-center gap-2 transition-transform active:scale-95"
+                    >
+                      <PenTool size={15} className="text-blue-600" /> {selectedWf.actionButtonText}
+                    </button>
                   </div>
                 </div>
-              </div>
-
-              {/* All Signatures Collected So Far (Visual Signatures Grid) */}
-              <SignaturesOverviewSection signatures={selectedInspection.signatures || {}} />
-
-              {/* Action / Signing Section: Disabled for Admin, Role-restricted for others */}
-              {!isAdmin ? (
-                <ApprovalActionSection
-                  inspection={selectedInspection}
-                  role={selectedRole}
-                  onApproveClick={() => {
-                    setRemarks("");
-                    setSignatureData("");
-                    setPasscode("");
-                    setActionError("");
-                    setShowSignModal(true);
-                  }}
-                  onRejectClick={() => {
-                    setRemarks("");
-                    setPasscode("");
-                    setActionError("");
-                    setShowRejectModal(true);
-                  }}
-                />
-              ) : (
-                <div className="bg-purple-50/70 rounded-3xl border border-purple-200 p-6 flex items-center justify-between gap-4 flex-wrap">
+              ) : isAdmin ? (
+                <div className="bg-purple-50/80 rounded-2xl sm:rounded-3xl p-5 border border-purple-200 flex items-center justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
                       <Shield size={20} />
                     </div>
                     <div>
-                      <h4 className="font-display font-bold text-sm text-purple-900">Admin Oversight & Reporting Privileges</h4>
+                      <h4 className="font-display font-bold text-sm text-purple-900">
+                        Admin Oversight: Inspection is currently with <b>{selectedWf?.currentPendingRole}</b>
+                      </h4>
                       <p className="font-body text-xs text-purple-700">
-                        Admin acts as an independent auditor. To generate official printout or PDF, click Generate Print above.
+                        Admin can monitor live multi-level stage progress or generate official PDF reports anytime.
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowPrintModal(true)}
-                    className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 shadow-md transition-all"
+                    className="font-body text-xs font-bold px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 shadow-xs transition-all"
                   >
-                    <Printer size={15} /> Generate Print Document
+                    <Printer size={14} /> Generate PDF
                   </button>
                 </div>
+              ) : (
+                <div className="bg-slate-100/80 rounded-2xl p-4 border border-slate-200 text-slate-700 text-xs font-body flex items-center gap-3">
+                  <Lock size={16} className="shrink-0 text-slate-400" />
+                  <div>
+                    <span className="font-bold">Currently Waiting for: {selectedWf?.currentPendingRole}</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      No action required from {selectedRole} at this stage. Action will unlock sequentially as preceding steps complete.
+                    </p>
+                  </div>
+                </div>
               )}
+
+              {/* Inspection Summary Card */}
+              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
+                    <FileText size={18} className="text-blue-600" /> Inspection Record Summary
+                  </h3>
+                  <span className="text-[11px] font-mono font-bold text-slate-400">
+                    Updated: {new Date(selectedInspection.updatedAt || Date.now()).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="font-body text-xs text-slate-400 mb-1">Project</p>
+                    <p className="font-body font-bold text-sm text-slate-900">{selectedInspection.projectName}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="font-body text-xs text-slate-400 mb-1">Unit Number</p>
+                    <p className="font-body font-bold text-sm text-blue-700">{selectedInspection.unitNumber}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="font-body text-xs text-slate-400 mb-1">Customer Name</p>
+                    <p className="font-body font-bold text-sm text-slate-900">{selectedInspection.customerName || "—"}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="font-body text-xs text-slate-400 mb-1">Stage Status</p>
+                    <span className="font-mono text-xs font-bold text-slate-800">
+                      {selectedInspection.workflowStatus || selectedInspection.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual Approval Timeline */}
+              <WorkflowStepper inspection={selectedInspection} currentUserRole={selectedRole} />
+
+              {/* Full Checklist Detail */}
+              <DetailedChecklist inspection={selectedInspection} />
+
+              {/* Remarks & Declaration Details */}
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+                  <h4 className="font-display font-bold text-sm sm:text-base text-slate-900 mb-2 flex items-center gap-2">
+                    <PenTool size={16} className="text-blue-600" /> General Remarks & Notes
+                  </h4>
+                  <p className="font-body text-xs text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-100 min-h-[70px] whitespace-pre-wrap">
+                    {selectedInspection.generalRemarks || "No general remarks recorded."}
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+                  <h4 className="font-display font-bold text-sm sm:text-base text-slate-900 mb-2 flex items-center gap-2">
+                    <ShieldCheck size={16} className="text-blue-600" /> Customer Declaration
+                  </h4>
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs font-body text-slate-700 space-y-1">
+                    <p>Status: <b>{selectedInspection.declarationChecked ? "✓ Confirmed & Accepted" : "Pending Confirmation"}</b></p>
+                    <p>Interior Works Allowed Duration: <b>{selectedInspection.interiorDays || "30"} days</b></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Digital Signatures Overview */}
+              <SignaturesOverviewSection signatures={selectedInspection.signatures || {}} />
 
               {/* Approval Audit History Section */}
               <AuditHistorySection history={selectedInspection.approvalHistory || []} />
@@ -548,14 +926,14 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
           )}
         </main>
 
-        {/* Role Password Login Modal */}
+        {/* ========================================================================= */}
+        {/* MODAL 1: Role Password Login Modal                                       */}
+        {/* ========================================================================= */}
         {showRoleAuthModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 relative animate-in fade-in zoom-in-95 duration-150">
               <button
-                onClick={() => {
-                  setShowRoleAuthModal(false);
-                }}
+                onClick={() => setShowRoleAuthModal(false)}
                 className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
               >
                 <X size={20} />
@@ -587,7 +965,10 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
                     maxLength={6}
                     inputMode="numeric"
                     value={roleAuthPin}
-                    onChange={(e) => { setRoleAuthPin(e.target.value); setRoleAuthError(""); }}
+                    onChange={(e) => {
+                      setRoleAuthPin(e.target.value);
+                      setRoleAuthError("");
+                    }}
                     placeholder="••••••"
                     autoFocus
                     autoComplete="new-password"
@@ -616,11 +997,14 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
           </div>
         )}
 
-        {/* Signature & Approval Modal */}
+        {/* ========================================================================= */}
+        {/* MODAL 2: Signature & Two-Step Approval Modal                             */}
+        {/* ========================================================================= */}
         {showSignModal && (
           <SignatureApprovalModal
             role={selectedRole}
             userName={userName}
+            inspection={selectedInspection}
             remarks={remarks}
             setRemarks={setRemarks}
             passcode={passcode}
@@ -633,11 +1017,14 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
           />
         )}
 
-        {/* Rejection Modal */}
+        {/* ========================================================================= */}
+        {/* MODAL 3: Rejection Modal                                                 */}
+        {/* ========================================================================= */}
         {showRejectModal && (
           <RejectionModal
             role={selectedRole}
             userName={userName}
+            inspection={selectedInspection}
             remarks={remarks}
             setRemarks={setRemarks}
             passcode={passcode}
@@ -649,16 +1036,20 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
           />
         )}
 
-        {/* Print / PDF Preview Modal */}
+        {/* ========================================================================= */}
+        {/* MODAL 4: Official PDF / Print Document Modal                             */}
+        {/* ========================================================================= */}
         {showPrintModal && selectedInspection && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-sm no-print overflow-y-auto"
-            onMouseDown={(e) => { if (e.target === e.currentTarget) setShowPrintModal(false); }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowPrintModal(false);
+            }}
           >
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center gap-2.5">
-                  <Printer size={20} className="text-purple-600" />
+                  <Printer size={18} className="text-purple-600" />
                   <span className="font-display font-bold text-sm text-slate-800">
                     Official Joint Inspection Checklist (Print / PDF Preview)
                   </span>
@@ -693,38 +1084,20 @@ export default function ApprovalPortal({ onExit, initialInspectionId = null, ini
   );
 }
 
-function StatusBadge({ status }) {
-  const meta = {
-    "DRAFT": { label: "Draft", cls: "bg-slate-100 text-slate-700 border-slate-200" },
-    "draft": { label: "Draft", cls: "bg-slate-100 text-slate-700 border-slate-200" },
-    "SITE_ENGINEER_PENDING": { label: "Site Eng Pending", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-    "QA_QC_PENDING": { label: "QA/QC Pending", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-    "PROJECT_MANAGER_PENDING": { label: "PM Pending", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-    "GM_HUG_PENDING": { label: "GM Pending", cls: "bg-purple-50 text-purple-700 border-purple-200" },
-    "VP_HUG_PENDING": { label: "VP Pending", cls: "bg-pink-50 text-pink-700 border-pink-200" },
-    "COMPLETED": { label: "Completed ✓", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-    "REJECTED": { label: "Rejected ✕", cls: "bg-rose-50 text-rose-700 border-rose-200" },
-  };
-
-  const badge = meta[status] || { label: status || "Submitted", cls: "bg-slate-100 text-slate-700 border-slate-200" };
-  return (
-    <span className={`font-mono text-[11px] font-bold px-2.5 py-1 rounded-full border ${badge.cls}`}>
-      {badge.label}
-    </span>
-  );
-}
-
+/**
+ * Detailed Checklist Viewer
+ */
 function DetailedChecklist({ inspection }) {
   const cells = inspection.cells || {};
   const entries = Object.entries(cells).filter(([_, c]) => c && c.status);
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-      <h3 className="font-display font-bold text-lg text-slate-900 mb-4 flex items-center gap-2">
-        <CheckSquare size={20} className="text-blue-600" /> Checklist Items Evaluated ({entries.length} recorded)
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+      <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 mb-4 flex items-center gap-2">
+        <CheckSquare size={18} className="text-blue-600" /> Evaluated Checklist Particulars ({entries.length} recorded)
       </h3>
 
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/60 max-h-96 overflow-y-auto space-y-2">
+      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 max-h-96 overflow-y-auto space-y-2">
         {entries.length === 0 ? (
           <p className="font-body text-xs text-slate-500 italic">No checklist items recorded yet.</p>
         ) : (
@@ -755,6 +1128,9 @@ function DetailedChecklist({ inspection }) {
   );
 }
 
+/**
+ * Visual Signatures Overview Section
+ */
 function SignaturesOverviewSection({ signatures }) {
   const ROLES_LIST = [
     { key: "customer", label: "Customer Sign" },
@@ -768,19 +1144,19 @@ function SignaturesOverviewSection({ signatures }) {
   ];
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-      <h3 className="font-display font-bold text-lg text-slate-900 mb-4 flex items-center gap-2">
-        <PenTool size={20} className="text-blue-600" /> Digital Signatures Status (8 Mandatory Roles)
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+      <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 mb-4 flex items-center gap-2">
+        <PenTool size={18} className="text-blue-600" /> Digital Signatures Overview (8 Mandatory Stakeholders)
       </h3>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {ROLES_LIST.map((r) => {
           const sig = signatures[r.key];
           const isSigned = !!sig;
           return (
             <div
               key={r.key}
-              className={`p-3.5 rounded-2xl border flex flex-col justify-between items-center text-center min-h-[110px] ${
+              className={`p-3.5 rounded-xl border flex flex-col justify-between items-center text-center min-h-[110px] ${
                 isSigned ? "bg-emerald-50/70 border-emerald-300" : "bg-slate-50 border-slate-200"
               }`}
             >
@@ -807,103 +1183,30 @@ function SignaturesOverviewSection({ signatures }) {
   );
 }
 
-function ApprovalActionSection({ inspection, role, onApproveClick, onRejectClick }) {
-  const currentStatus = inspection.workflowStatus || "DRAFT";
-  const signatures = inspection.signatures || {};
-
-  const isAssignedRole =
-    (role === "QA/QC In-Charge" && currentStatus === "QA_QC_PENDING") ||
-    (role === "Project Manager" && currentStatus === "PROJECT_MANAGER_PENDING") ||
-    (role === "GM – HUG" && currentStatus === "GM_HUG_PENDING") ||
-    (role === "VP – HUG" && currentStatus === "VP_HUG_PENDING") ||
-    role === "Customer" ||
-    role === "Technical Executive" ||
-    role === "Manager Technical" ||
-    (role === "Site Engineer" && ["DRAFT", "SITE_ENGINEER_PENDING", "REJECTED"].includes(currentStatus));
-
-  const hasCustomer = !!signatures.customer;
-  const hasTechExec = !!signatures.technicalExecutive;
-  const isSequentialApproval = ["QA/QC In-Charge", "Project Manager", "GM – HUG", "VP – HUG"].includes(role);
-  const parallelMissing = isSequentialApproval && (!hasCustomer || !hasTechExec);
-
-  return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h3 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
-            <PenTool size={20} className="text-blue-600" /> Approval & Sign-off Action
-          </h3>
-          <p className="font-body text-xs text-slate-500">Authorize or reject inspection for stage <b>{role}</b></p>
-        </div>
-
-        {isAssignedRole && (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onRejectClick}
-              className="text-xs font-body font-bold px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors flex items-center gap-1.5"
-            >
-              <XCircle size={16} /> Reject
-            </button>
-            <button
-              onClick={onApproveClick}
-              disabled={parallelMissing}
-              className={`text-xs font-body font-bold px-6 py-2.5 rounded-xl text-white shadow-md flex items-center gap-2 transition-all ${
-                parallelMissing
-                  ? "bg-slate-300 cursor-not-allowed shadow-none"
-                  : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/20"
-              }`}
-            >
-              <CheckCircle2 size={16} /> {parallelMissing ? "Parallel Signatures Required" : "Approve & Sign"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {isAssignedRole && parallelMissing && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-body flex items-start gap-2.5">
-          <AlertTriangle size={18} className="shrink-0 text-amber-600 mt-0.5" />
-          <div>
-            <p className="font-bold text-slate-900 mb-0.5">Stage Advancement Gate Locked</p>
-            <p>
-              Both <b>Customer Sign</b> and <b>Technical Executive Sign</b> are mandatory before stage approval.
-              {!hasCustomer && <span className="block font-semibold text-rose-700">• Missing Customer Signature</span>}
-              {!hasTechExec && <span className="block font-semibold text-rose-700">• Missing Technical Executive Signature</span>}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!isAssignedRole && (
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-body flex items-center gap-2">
-          <Lock size={16} className="shrink-0 text-slate-400" />
-          <span>This inspection is in stage <b>{currentStatus}</b>. Action for {role} is locked until previous sequential approvals complete.</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
+/**
+ * Audit History Timeline Section
+ */
 function AuditHistorySection({ history }) {
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm">
-      <h3 className="font-display font-bold text-lg text-slate-900 mb-4 flex items-center gap-2">
-        <Clock size={20} className="text-blue-600" /> Approval Audit History
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+      <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 mb-4 flex items-center gap-2">
+        <Clock size={18} className="text-blue-600" /> Approval Audit Trail
       </h3>
 
       {history.length === 0 ? (
         <p className="font-body text-xs text-slate-500 italic">No audit history recorded yet.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {history.map((h, idx) => (
-            <div key={h.id || idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 flex items-start justify-between flex-wrap gap-3">
+            <div key={h.id || idx} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70 flex items-start justify-between flex-wrap gap-3">
               <div className="flex items-start gap-3">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
                   h.action === "Rejected" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
                 }`}>
                   {h.action === "Rejected" ? "✕" : "✓"}
                 </div>
                 <div>
-                  <p className="font-body font-bold text-sm text-slate-900">{h.role} · {h.userName}</p>
+                  <p className="font-body font-bold text-xs sm:text-sm text-slate-900">{h.role} · {h.userName}</p>
                   <p className="font-body text-xs text-slate-600 mt-0.5">{h.action} - Status: <span className="font-mono font-semibold">{h.status}</span></p>
                   {h.comments && <p className="font-body text-xs text-slate-500 mt-1 italic">"{h.comments}"</p>}
                 </div>
@@ -920,69 +1223,186 @@ function AuditHistorySection({ history }) {
   );
 }
 
-function SignatureApprovalModal({ role, userName, remarks, setRemarks, passcode, setPasscode, onClose, onConfirm, submitting, error, onSignatureCaptured }) {
+/**
+ * Helper to export clean trimmed PNG without excessive empty whitespace,
+ * preserving crisp quality and exact aspect ratio in PDF / documents.
+ */
+function exportTrimmedSignature(canvas) {
+  if (!canvas) return "";
+  try {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    let minX = w, minY = h, maxX = 0, maxY = 0;
+    let hasDrawn = false;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const alpha = data[idx + 3];
+        // Detect drawn stroke pixels (transparent background)
+        if (alpha > 15) {
+          hasDrawn = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if (!hasDrawn) return "";
+
+    const padding = 12;
+    const cropX = Math.max(0, minX - padding);
+    const cropY = Math.max(0, minY - padding);
+    const cropW = Math.min(w - cropX, maxX - minX + padding * 2);
+    const cropH = Math.min(h - cropY, maxY - minY + padding * 2);
+
+    const trimmedCanvas = document.createElement("canvas");
+    trimmedCanvas.width = cropW;
+    trimmedCanvas.height = cropH;
+    const trimmedCtx = trimmedCanvas.getContext("2d");
+    trimmedCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+    return trimmedCanvas.toDataURL("image/png");
+  } catch (err) {
+    console.warn("Trim signature fallback to standard export:", err);
+    return canvas.toDataURL("image/png");
+  }
+}
+
+/**
+ * Two-Step Signature & Approval Modal with Precise Coordinate Tracking
+ */
+function SignatureApprovalModal({ role, userName, inspection, remarks, setRemarks, passcode, setPasscode, onClose, onConfirm, submitting, error, onSignatureCaptured }) {
   const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
   const drawingRef = useRef(false);
+  const pathsRef = useRef([]);
+
+  const redraw = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#1e3a8a";
+    ctx.lineWidth = 2.8 * (canvas._dpr || 1);
+
+    pathsRef.current.forEach((path) => {
+      if (path.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y);
+      }
+      ctx.stroke();
+    });
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = wrap.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      canvas._dpr = dpr;
+      redraw();
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
 
   function getPoint(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const touch = e.touches ? e.touches[0] : e;
-    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+    const dpr = canvas._dpr || 1;
+    // Map screen touch coordinates directly to high-DPI canvas buffer coordinates
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (touch.clientX - rect.left) * scaleX,
+      y: (touch.clientY - rect.top) * scaleY,
+    };
   }
 
   function startDraw(e) {
     e.preventDefault();
     drawingRef.current = true;
-    const ctx = canvasRef.current.getContext("2d");
     const p = getPoint(e);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
+    pathsRef.current.push([p]);
+    redraw();
   }
 
   function moveDraw(e) {
     if (!drawingRef.current) return;
     e.preventDefault();
-    const ctx = canvasRef.current.getContext("2d");
     const p = getPoint(e);
-    ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = "#1e3a8a";
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    pathsRef.current[pathsRef.current.length - 1].push(p);
+    redraw();
   }
 
-  function endDraw() {
+  function endDraw(e) {
     if (!drawingRef.current) return;
+    if (e) e.preventDefault();
     drawingRef.current = false;
-    onSignatureCaptured(canvasRef.current.toDataURL());
+    const trimmed = exportTrimmedSignature(canvasRef.current);
+    onSignatureCaptured(trimmed);
   }
 
   function clearCanvas() {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    pathsRef.current = [];
+    redraw();
     onSignatureCaptured("");
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 relative rise">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 relative my-auto animate-in fade-in zoom-in-95 duration-150">
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
           <X size={20} />
         </button>
 
-        <h3 className="font-display font-bold text-lg text-slate-900 mb-1">Confirm Approval & Sign</h3>
-        <p className="font-body text-xs text-slate-500 mb-4">Approving as <b>{role}</b> ({userName})</p>
+        {/* Step Header */}
+        <div className="border-b border-slate-100 pb-3 mb-4">
+          <div className="flex items-center gap-2 text-blue-600 font-bold text-xs uppercase tracking-wider mb-1">
+            <ShieldCheck size={16} /> Role Verification & Sign-off
+          </div>
+          <h3 className="font-display font-bold text-lg text-slate-900">
+            {role} Approval
+          </h3>
+          <p className="font-body text-xs text-slate-500">
+            Inspection: <b>{inspection?.inspectionId}</b> · Unit <b>{inspection?.unitNumber}</b>
+          </p>
+        </div>
 
         {error && (
           <div className="mb-4 text-xs font-body text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-2">
-            <AlertTriangle size={14} /> {error}
+            <AlertTriangle size={14} className="shrink-0" /> {error}
           </div>
         )}
 
         <div className="space-y-4">
+          {/* Re-authenticate with 6-digit PIN */}
           <div>
             <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1"><KeyRound size={13} className="text-blue-600" /> 6-Digit Password <span className="text-rose-500">*</span></span>
+              <span className="flex items-center gap-1">
+                <KeyRound size={13} className="text-blue-600" /> Enter 6-Digit Password for {role} <span className="text-rose-500">*</span>
+              </span>
             </label>
             <input
               type="password"
@@ -992,12 +1412,16 @@ function SignatureApprovalModal({ role, userName, remarks, setRemarks, passcode,
               onChange={(e) => setPasscode(e.target.value)}
               placeholder="••••••"
               autoComplete="new-password"
+              autoFocus
               className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
 
+          {/* Optional comments */}
           <div>
-            <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">Review Remarks / Sign-off Comments (Optional)</label>
+            <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
+              Sign-off Comments / Verification Remarks (Optional)
+            </label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
@@ -1007,27 +1431,31 @@ function SignatureApprovalModal({ role, userName, remarks, setRemarks, passcode,
             />
           </div>
 
+          {/* Digital Signature Canvas with Relative Positioning */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="font-body text-xs font-semibold text-slate-700">Digital Signature</label>
+              <label className="font-body text-xs font-semibold text-slate-700">
+                Digital Signature
+              </label>
               <button onClick={clearCanvas} className="text-[11px] font-body text-slate-500 hover:text-slate-800 flex items-center gap-1">
                 <RotateCcw size={11} /> Clear
               </button>
             </div>
-            <div className="h-32 bg-slate-50 border border-dashed border-slate-300 rounded-2xl overflow-hidden relative" style={{ touchAction: "none" }}>
+            <div ref={wrapRef} className="h-32 w-full bg-slate-50 border border-dashed border-slate-300 rounded-2xl overflow-hidden relative" style={{ touchAction: "none" }}>
               <canvas
                 ref={canvasRef}
-                width={380}
-                height={128}
                 onMouseDown={startDraw}
                 onMouseMove={moveDraw}
                 onMouseUp={endDraw}
+                onMouseLeave={endDraw}
                 onTouchStart={startDraw}
                 onTouchMove={moveDraw}
                 onTouchEnd={endDraw}
-                className="w-full h-full cursor-crosshair"
+                className="w-full h-full cursor-crosshair block"
               />
-              <span className="absolute bottom-2 left-3 font-mono text-[10px] text-slate-300 pointer-events-none">Sign with finger/stylus</span>
+              <span className="absolute bottom-2 left-3 font-mono text-[10px] text-slate-300 pointer-events-none select-none">
+                Sign with finger, stylus, or pointer
+              </span>
             </div>
           </div>
         </div>
@@ -1038,10 +1466,10 @@ function SignatureApprovalModal({ role, userName, remarks, setRemarks, passcode,
           </button>
           <button
             onClick={onConfirm}
-            disabled={submitting}
+            disabled={submitting || !passcode || passcode.length !== 6}
             className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
           >
-            {submitting ? "Approving..." : "Confirm & Sign"}
+            {submitting ? "Verifying & Approving..." : "Authenticate & Approve"}
           </button>
         </div>
       </div>
@@ -1049,29 +1477,36 @@ function SignatureApprovalModal({ role, userName, remarks, setRemarks, passcode,
   );
 }
 
-function RejectionModal({ role, userName, remarks, setRemarks, passcode, setPasscode, onClose, onConfirm, submitting, error }) {
+/**
+ * Rejection Modal
+ */
+function RejectionModal({ role, userName, inspection, remarks, setRemarks, passcode, setPasscode, onClose, onConfirm, submitting, error }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 relative rise">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 relative my-auto animate-in fade-in zoom-in-95 duration-150">
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
           <X size={20} />
         </button>
 
         <h3 className="font-display font-bold text-lg text-rose-600 mb-1 flex items-center gap-2">
-          <XCircle size={20} /> Reject Inspection
+          <XCircle size={20} /> Reject Inspection Stage
         </h3>
-        <p className="font-body text-xs text-slate-500 mb-4">Rejecting stage as <b>{role}</b> ({userName})</p>
+        <p className="font-body text-xs text-slate-500 mb-4">
+          Rejecting stage as <b>{role}</b> ({userName})
+        </p>
 
         {error && (
           <div className="mb-4 text-xs font-body text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-2">
-            <AlertTriangle size={14} /> {error}
+            <AlertTriangle size={14} className="shrink-0" /> {error}
           </div>
         )}
 
         <div className="space-y-4">
           <div>
             <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1"><KeyRound size={13} className="text-rose-600" /> 6-Digit Password <span className="text-rose-500">*</span></span>
+              <span className="flex items-center gap-1">
+                <KeyRound size={13} className="text-rose-600" /> Enter 6-Digit Password <span className="text-rose-500">*</span>
+              </span>
             </label>
             <input
               type="password"
@@ -1081,19 +1516,20 @@ function RejectionModal({ role, userName, remarks, setRemarks, passcode, setPass
               onChange={(e) => setPasscode(e.target.value)}
               placeholder="••••••"
               autoComplete="new-password"
+              autoFocus
               className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-300"
             />
           </div>
 
           <div>
             <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
-              Reason for Rejection / Rectifications Required <span className="text-rose-500">*</span>
+              Reason for Rejection / Mandatory Rectifications <span className="text-rose-500">*</span>
             </label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={3}
-              placeholder="Explain mandatory rectification points..."
+              placeholder="Explain required rectification points..."
               className="w-full text-xs font-body rounded-xl border border-rose-200 p-2.5 bg-rose-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-300"
             />
           </div>
@@ -1105,7 +1541,7 @@ function RejectionModal({ role, userName, remarks, setRemarks, passcode, setPass
           </button>
           <button
             onClick={onConfirm}
-            disabled={submitting || !remarks.trim()}
+            disabled={submitting || !remarks.trim() || !passcode || passcode.length !== 6}
             className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
           >
             {submitting ? "Rejecting..." : "Confirm Rejection"}

@@ -32,12 +32,15 @@ export async function POST(request) {
       );
     }
 
-    // Require Site Engineer passcode
+    // Require Site Engineer / Start Inspection passcode
+    // Both roles share the same PIN — the login captures it as "Start Inspection"
     const passcode = data.passcode || "";
-    const isValid = verifyRolePassword("Site Engineer", passcode);
+    const isValid =
+      verifyRolePassword("Site Engineer", passcode) ||
+      verifyRolePassword("Start Inspection", passcode);
     if (!isValid) {
       recordFailedAttempt(ip, "SITE_ENGINEER");
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+      return NextResponse.json({ error: "Invalid credentials. Please check your 6-digit password." }, { status: 401 });
     }
 
     clearRateLimit(ip, "SITE_ENGINEER");

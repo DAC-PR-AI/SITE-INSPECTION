@@ -28,12 +28,11 @@ const { google } = require('googleapis');
 const privateKey = envVars['GOOGLE_SHEETS_PRIVATE_KEY'].replace(/\\n/g, '\n');
 const spreadsheetId = envVars['GOOGLE_SHEET_ID'];
 
-const auth = new google.auth.JWT(
-  envVars['GOOGLE_SHEETS_CLIENT_EMAIL'],
-  undefined,
-  privateKey,
-  ['https://www.googleapis.com/auth/spreadsheets']
-);
+const auth = new google.auth.JWT({
+  email: envVars['GOOGLE_SHEETS_CLIENT_EMAIL'],
+  key: privateKey,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
 
 // ── Expected columns per tab ──────────────────────────────────────────────────
 // These are the COMPLETE expected header rows (order matters for new installs).

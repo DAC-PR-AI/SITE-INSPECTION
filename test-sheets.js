@@ -18,22 +18,20 @@ for (const line of envContent.split('\n')) {
   envVars[key] = val;
 }
 
-console.log('Email:', envVars['GOOGLE_SHEETS_CLIENT_EMAIL']);
-console.log('Sheet ID:', envVars['GOOGLE_SHEET_ID']);
-console.log('Key starts with:', envVars['GOOGLE_SHEETS_PRIVATE_KEY']?.slice(0, 30));
+console.log('Email set:', Boolean(envVars['GOOGLE_SHEETS_CLIENT_EMAIL']));
+console.log('Sheet ID set:', Boolean(envVars['GOOGLE_SHEET_ID']));
+console.log('Private key set:', Boolean(envVars['GOOGLE_SHEETS_PRIVATE_KEY']));
 
 const { google } = require('googleapis');
 
 // Replace literal \n with real newlines
 const privateKey = envVars['GOOGLE_SHEETS_PRIVATE_KEY'].replace(/\\n/g, '\n');
-console.log('Key line 1:', privateKey.split('\n')[0]);
 
-const auth = new google.auth.JWT(
-  envVars['GOOGLE_SHEETS_CLIENT_EMAIL'],
-  undefined,
-  privateKey,
-  ['https://www.googleapis.com/auth/spreadsheets']
-);
+const auth = new google.auth.JWT({
+  email: envVars['GOOGLE_SHEETS_CLIENT_EMAIL'],
+  key: privateKey,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
 
 auth.authorize()
   .then(() => {

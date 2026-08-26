@@ -23,12 +23,12 @@ export async function POST(request) {
     const passcode = data.passcode || "";
     const roleParam = data.role || "Site Engineer";
 
-    // Rate limit
-    const { limited, resetInMs } = checkRateLimit(ip, "DRAFT_WRITE");
+    // Rate limit check for draft saves (1000 requests per 15 min window)
+    const { limited, resetInMs } = checkRateLimit(ip, "DRAFT_WRITE", 1000);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
-        { error: `Too many attempts. Try again in ${minutes} minute(s).` },
+        { error: `Too many draft save attempts. Try again in ${minutes} minute(s).` },
         { status: 429 }
       );
     }
