@@ -47,7 +47,7 @@ export async function POST(request) {
       return NextResponse.json({ error: imageValidation.error }, { status: 400 });
     }
 
-    const { inspectionId, photoType, itemId, areaKey, dataUrl } = data;
+    const { inspectionId, photoType, itemId, areaKey, dataUrl, project, unit } = data;
 
     // Sanitize parameters to prevent path traversal or header manipulation
     const safeInspectionId = sanitizeIdentifier(inspectionId, "INSPECTION");
@@ -64,7 +64,7 @@ export async function POST(request) {
       filename = `${safeInspectionId}_${safePhotoType}_item${safeItemId}_${safeAreaKey}_${timestamp}.jpg`;
     }
 
-    const result = await uploadPhotoToDrive({ filename, dataUrl });
+    const result = await uploadPhotoToDrive({ filename, dataUrl, project, unit });
 
     if (!result.ok) {
       console.warn(

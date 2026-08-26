@@ -126,12 +126,12 @@ function compressImage(file, maxWidth = 700, quality = 0.5) {
   });
 }
 
-async function uploadPhoto(inspectionId, photoType, dataUrl, itemId, areaKey) {
+async function uploadPhoto(inspectionId, photoType, dataUrl, itemId, areaKey, project = "", unit = "") {
   try {
     const res = await fetch("/api/photos/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inspectionId, photoType, dataUrl, itemId, areaKey }),
+      body: JSON.stringify({ inspectionId, photoType, dataUrl, itemId, areaKey, project, unit }),
     });
     if (!res.ok) throw new Error("Upload failed");
     const json = await res.json();
@@ -399,7 +399,7 @@ function CustomerVerificationPhoto({ data, updateField, push }) {
     setBusy(true);
     try {
       const compressed = await compressImage(file);
-      const url = await uploadPhoto(data?.inspectionId, 'customerVerification', compressed);
+      const url = await uploadPhoto(data?.inspectionId, 'customerVerification', compressed, null, null, data?.projectName, data?.unitNumber);
       updateField({ customerVerificationPhoto: url });
       if (push) push("Customer verification photo captured.", "success");
     } catch {
@@ -628,7 +628,7 @@ function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
       const room = Math.max(0, 4 - existing.length);
       const arr = Array.from(files).slice(0, room);
       const compressed = await Promise.all(arr.map((f) => compressImage(f)));
-      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'fail', dataUrl, itemId, areaKey)));
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'fail', dataUrl, itemId, areaKey, data?.projectName, data?.unitNumber)));
       onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
     } finally {
       setBusy(false);
@@ -729,7 +729,7 @@ function PassPhotos({ cell, onUpdate, inspectionId, itemId, areaKey }) {
       const room = Math.max(0, 4 - existing.length);
       const arr = Array.from(files).slice(0, room);
       const compressed = await Promise.all(arr.map((f) => compressImage(f)));
-      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'pass', dataUrl, itemId, areaKey)));
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'pass', dataUrl, itemId, areaKey, data?.projectName, data?.unitNumber)));
       onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
     } finally {
       setBusy(false);
