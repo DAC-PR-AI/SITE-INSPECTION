@@ -189,37 +189,59 @@ function SignatureCanvas({ onReady }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    const dpr = canvas._dpr || 1;
+    
+    // Reset transform and clear entire high-DPI buffer
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Set transform to device pixel ratio so all drawing commands use CSS pixels (1:1 with screen)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.strokeStyle = "#0F1B2D";
-    ctx.lineWidth = 2.4 * (canvas._dpr || 1);
+    ctx.lineWidth = 2.4;
+
     pathsRef.current.forEach((path) => {
-      if (path.length < 2) return;
+      if (path.length === 0) return;
+      if (path.length === 1) {
+        // Single tap dot
+        ctx.beginPath();
+        ctx.arc(path[0].x, path[0].y, 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = "#0F1B2D";
+        ctx.fill();
+        return;
+      }
       ctx.beginPath();
       ctx.moveTo(path[0].x, path[0].y);
-      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y);
+      }
       ctx.stroke();
     });
   }, []);
 
-  useEffect(() => {
+  const resize = useCallback(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
-    function resize() {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = wrap.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas._dpr = dpr;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(dpr, dpr);
-      redraw();
-    }
+    if (!canvas || !wrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas._dpr = dpr;
+    canvas._cssWidth = rect.width;
+    canvas._cssHeight = rect.height;
+    redraw();
+  }, [redraw]);
+
+  useEffect(() => {
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, [redraw]);
+  }, [resize]);
 
   useEffect(() => {
     onReady({
@@ -255,7 +277,7 @@ function SignatureCanvas({ onReady }) {
 
           if (!hasDrawn) return "";
 
-          const padding = 12;
+          const padding = 16;
           const cropX = Math.max(0, minX - padding);
           const cropY = Math.max(0, minY - padding);
           const cropW = Math.min(w - cropX, maxX - minX + padding * 2);
@@ -280,34 +302,66 @@ function SignatureCanvas({ onReady }) {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    
+    // Support PointerEvents, TouchEvents, and MouseEvents accurately in CSS pixels
+    const clientX = e.clientX !== undefined 
+      ? e.clientX 
+      : (e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? 0);
+    const clientY = e.clientY !== undefined 
+      ? e.clientY 
+      : (e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? 0);
+
     return {
-      x: (touch.clientX - rect.left) * scaleX,
-      y: (touch.clientY - rect.top) * scaleY,
+      x: clientX - rect.left,
+      y: clientY - rect.top,
     };
   }
-  function start(e) { e.preventDefault(); drawingRef.current = true; pathsRef.current.push([getPoint(e)]); redraw(); }
-  function move(e) {
-    if (!drawingRef.current) return;
-    e.preventDefault();
-    pathsRef.current[pathsRef.current.length - 1].push(getPoint(e));
+
+  function handlePointerDown(e) {
+    if (e.cancelable) e.preventDefault();
+    if (e.target.setPointerCapture) {
+      try { e.target.setPointerCapture(e.pointerId); } catch {}
+    }
+    drawingRef.current = true;
+    pathsRef.current.push([getPoint(e)]);
     redraw();
   }
-  function end(e) { if (e) e.preventDefault(); drawingRef.current = false; }
+
+  function handlePointerMove(e) {
+    if (!drawingRef.current) return;
+    if (e.cancelable) e.preventDefault();
+    const pt = getPoint(e);
+    const currPath = pathsRef.current[pathsRef.current.length - 1];
+    if (currPath) {
+      currPath.push(pt);
+      redraw();
+    }
+  }
+
+  function handlePointerUp(e) {
+    if (!drawingRef.current) return;
+    if (e && e.cancelable) e.preventDefault();
+    if (e?.target?.releasePointerCapture) {
+      try { e.target.releasePointerCapture(e.pointerId); } catch {}
+    }
+    drawingRef.current = false;
+  }
 
   return (
     <div
       ref={wrapRef}
-      className="relative w-full h-56 sm:h-64 bg-[var(--paper)] rounded-xl border border-[var(--line)] overflow-hidden"
+      className="relative w-full h-56 sm:h-64 bg-[var(--paper)] rounded-2xl border border-[var(--line)] overflow-hidden shadow-inner select-none"
       style={{ touchAction: "none" }}
     >
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full cursor-crosshair block"
-        onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
-        onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+        className="absolute inset-0 w-full h-full cursor-crosshair block touch-none"
+        style={{ touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
       />
       <div className="absolute bottom-3 left-4 right-4 border-b border-dashed border-[var(--line)] pointer-events-none" />
     </div>

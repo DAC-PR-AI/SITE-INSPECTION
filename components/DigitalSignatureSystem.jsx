@@ -12,21 +12,33 @@ function DrawingCanvas({ onReady }) {
   const wrapRef = useRef(null);
   const drawingRef = useRef(false);
   const pathsRef = useRef([]);
-  const currentPathRef = useRef([]);
 
   const redraw = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     const dpr = canvas._dpr || 1;
+
+    // Reset transform & clear full buffer
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Apply DPR scale transform so drawing coordinates align 1:1 with CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2.4;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
     pathsRef.current.forEach((path) => {
-      if (path.length < 2) return;
+      if (path.length === 0) return;
+      if (path.length === 1) {
+        ctx.beginPath();
+        ctx.arc(path[0].x, path[0].y, 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = "#1e293b";
+        ctx.fill();
+        return;
+      }
       ctx.beginPath();
       ctx.moveTo(path[0].x, path[0].y);
       for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
@@ -42,11 +54,10 @@ function DrawingCanvas({ onReady }) {
     function resize() {
       const dpr = window.devicePixelRatio || 1;
       const rect = wrap.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+      if (rect.width === 0 || rect.height === 0) return;
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
       canvas._dpr = dpr;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(dpr, dpr);
       redraw();
     }
 
@@ -77,51 +88,64 @@ function DrawingCanvas({ onReady }) {
   }, [onReady]);
 
   const getPos = (e) => {
-    const wrap = wrapRef.current;
-    if (!wrap) return { x: 0, y: 0 };
-    const rect = wrap.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.clientX !== undefined 
+      ? e.clientX 
+      : (e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? 0);
+    const clientY = e.clientY !== undefined 
+      ? e.clientY 
+      : (e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? 0);
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
-  const start = (e) => {
+  const handlePointerDown = (e) => {
     if (e.cancelable) e.preventDefault();
+    if (e.target.setPointerCapture) {
+      try { e.target.setPointerCapture(e.pointerId); } catch {}
+    }
     drawingRef.current = true;
     const pt = getPos(e);
-    currentPathRef.current = [pt];
-    pathsRef.current.push(currentPathRef.current);
-  };
-
-  const move = (e) => {
-    if (!drawingRef.current) return;
-    if (e.cancelable) e.preventDefault();
-    const pt = getPos(e);
-    currentPathRef.current.push(pt);
+    pathsRef.current.push([pt]);
     redraw();
   };
 
-  const end = (e) => {
+  const handlePointerMove = (e) => {
+    if (!drawingRef.current) return;
     if (e.cancelable) e.preventDefault();
+    const pt = getPos(e);
+    const curr = pathsRef.current[pathsRef.current.length - 1];
+    if (curr) {
+      curr.push(pt);
+      redraw();
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    if (!drawingRef.current) return;
+    if (e && e.cancelable) e.preventDefault();
+    if (e?.target?.releasePointerCapture) {
+      try { e.target.releasePointerCapture(e.pointerId); } catch {}
+    }
     drawingRef.current = false;
   };
 
   return (
     <div
       ref={wrapRef}
-      className="relative w-full h-48 bg-slate-50 rounded-xl border border-slate-300 overflow-hidden"
+      className="relative w-full h-48 bg-slate-50 rounded-2xl border border-slate-300 overflow-hidden select-none"
       style={{ touchAction: "none" }}
     >
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full cursor-crosshair block"
-        onMouseDown={start}
-        onMouseMove={move}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={start}
-        onTouchMove={move}
-        onTouchEnd={end}
+        className="absolute inset-0 w-full h-full cursor-crosshair block touch-none"
+        style={{ touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
       />
       <div className="absolute bottom-3 left-4 right-4 border-b border-dashed border-slate-300 pointer-events-none" />
     </div>

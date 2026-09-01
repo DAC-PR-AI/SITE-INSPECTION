@@ -1208,18 +1208,32 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
   const drawingRef = useRef(false);
   const pathsRef = useRef([]);
 
-  const redraw = () => {
+  const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    const dpr = canvas._dpr || 1;
+
+    // Clear entire high-DPI buffer
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Apply scale transform so coordinates correspond 1:1 to CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.strokeStyle = "#1e3a8a";
-    ctx.lineWidth = 2.8 * (canvas._dpr || 1);
+    ctx.lineWidth = 2.6;
 
     pathsRef.current.forEach((path) => {
-      if (path.length < 2) return;
+      if (path.length === 0) return;
+      if (path.length === 1) {
+        ctx.beginPath();
+        ctx.arc(path[0].x, path[0].y, 1.3, 0, Math.PI * 2);
+        ctx.fillStyle = "#1e3a8a";
+        ctx.fill();
+        return;
+      }
       ctx.beginPath();
       ctx.moveTo(path[0].x, path[0].y);
       for (let i = 1; i < path.length; i++) {
@@ -1227,61 +1241,72 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
       }
       ctx.stroke();
     });
-  };
+  }, []);
 
-  useEffect(() => {
+  const resize = useCallback(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
 
-    function resize() {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = wrap.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-      canvas._dpr = dpr;
-      redraw();
-    }
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas._dpr = dpr;
+    redraw();
+  }, [redraw]);
 
+  useEffect(() => {
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, []);
+  }, [resize]);
 
   function getPoint(e) {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
-    const dpr = canvas._dpr || 1;
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const clientX = e.clientX !== undefined 
+      ? e.clientX 
+      : (e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? 0);
+    const clientY = e.clientY !== undefined 
+      ? e.clientY 
+      : (e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? 0);
+
     return {
-      x: (touch.clientX - rect.left) * scaleX,
-      y: (touch.clientY - rect.top) * scaleY,
+      x: clientX - rect.left,
+      y: clientY - rect.top,
     };
   }
 
-  function startDraw(e) {
-    e.preventDefault();
+  function handlePointerDown(e) {
+    if (e.cancelable) e.preventDefault();
+    if (e.target.setPointerCapture) {
+      try { e.target.setPointerCapture(e.pointerId); } catch {}
+    }
     drawingRef.current = true;
-    const p = getPoint(e);
-    pathsRef.current.push([p]);
+    pathsRef.current.push([getPoint(e)]);
     redraw();
   }
 
-  function moveDraw(e) {
+  function handlePointerMove(e) {
     if (!drawingRef.current) return;
-    e.preventDefault();
-    const p = getPoint(e);
-    pathsRef.current[pathsRef.current.length - 1].push(p);
-    redraw();
+    if (e.cancelable) e.preventDefault();
+    const pt = getPoint(e);
+    const currPath = pathsRef.current[pathsRef.current.length - 1];
+    if (currPath) {
+      currPath.push(pt);
+      redraw();
+    }
   }
 
-  function endDraw(e) {
+  function handlePointerUp(e) {
     if (!drawingRef.current) return;
-    if (e) e.preventDefault();
+    if (e && e.cancelable) e.preventDefault();
+    if (e?.target?.releasePointerCapture) {
+      try { e.target.releasePointerCapture(e.pointerId); } catch {}
+    }
     drawingRef.current = false;
     const trimmed = exportTrimmedSignature(canvasRef.current);
     onSignatureCaptured(trimmed);
@@ -1353,17 +1378,16 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
                 <RotateCcw size={11} /> Clear
               </button>
             </div>
-            <div ref={wrapRef} className="h-32 w-full bg-slate-50 border border-dashed border-slate-300 rounded-2xl overflow-hidden relative" style={{ touchAction: "none" }}>
+            <div ref={wrapRef} className="h-36 w-full bg-slate-50 border border-dashed border-slate-300 rounded-2xl overflow-hidden relative select-none" style={{ touchAction: "none" }}>
               <canvas
                 ref={canvasRef}
-                onMouseDown={startDraw}
-                onMouseMove={moveDraw}
-                onMouseUp={endDraw}
-                onMouseLeave={endDraw}
-                onTouchStart={startDraw}
-                onTouchMove={moveDraw}
-                onTouchEnd={endDraw}
-                className="w-full h-full cursor-crosshair block"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onPointerLeave={handlePointerUp}
+                className="w-full h-full cursor-crosshair block touch-none"
+                style={{ touchAction: "none" }}
               />
               <span className="absolute bottom-2 left-3 font-mono text-[10px] text-slate-300 pointer-events-none select-none">
                 Draw signature here with finger, stylus, or mouse
