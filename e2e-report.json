@@ -1,0 +1,51 @@
+{
+  "testId": "TEST-JIC-1787809569818",
+  "timestamp": "2026-08-27T05:46:09.818Z",
+  "mainSheetId": "1d5IsJnZXrowt8BXreqtQp_o4y6hSV2K8suFGv-kqy2I",
+  "photoSheetId": "1HwUy7hKxB4xXsFP3P2mmFvG6AQiRnFnxIGOCCjhWW3U",
+  "mainSheetTabs": [
+    "Inspections",
+    "Projects",
+    "ApprovalHistory",
+    "Signatures"
+  ],
+  "photoSheetTabs": [
+    "Sheet1",
+    "InspectionPhotos"
+  ],
+  "inspectionsSaved": true,
+  "photosSavedCount": 3,
+  "signaturesSavedCount": 2,
+  "photoDetails": [
+    {
+      "inspectionId": "TEST-JIC-1787809569818",
+      "project": "Manapark",
+      "unit": "A-101",
+      "photoType": "customerVerification",
+      "areaKey": "Handover",
+      "itemId": "Customer",
+      "photoUrl": "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300",
+      "timestamp": "2026-08-27T05:46:15.408Z"
+    },
+    {
+      "inspectionId": "TEST-JIC-1787809569818",
+      "project": "Manapark",
+      "unit": "A-101",
+      "photoType": "pass",
+      "areaKey": "living",
+      "itemId": "1",
+      "photoUrl": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=300",
+      "timestamp": "2026-08-27T05:46:15.408Z"
+    },
+    {
+      "inspectionId": "TEST-JIC-1787809569818",
+      "project": "Manapark",
+      "unit": "A-101",
+      "photoType": "fail",
+      "areaKey": "kitchen",
+      "itemId": "2",
+      "photoUrl": "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=300",
+      "timestamp": "2026-08-27T05:46:15.408Z"
+    }
+  ]
+}

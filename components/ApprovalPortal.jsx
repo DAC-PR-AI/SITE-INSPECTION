@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import WorkflowStepper from "./WorkflowStepper";
 import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
+import { getInspectionWorkflowInfo } from "../lib/workflow";
 
 const ROLES = [
   "Admin",
@@ -22,119 +23,6 @@ const ROLES = [
   "GM – HUG",
   "VP – HUG",
 ];
-
-/**
- * Calculates workflow progression, responsible role, and pending action for any inspection
- */
-export function getInspectionWorkflowInfo(inspection, selectedRole) {
-  if (!inspection) return { isPendingOnYou: false, displayStatus: "DRAFT", currentPendingRole: "Site Engineer", actionType: "view" };
-
-  const currentStatus = inspection.workflowStatus || inspection.status || "DRAFT";
-  const signatures = inspection.signatures || {};
-  const history = inspection.approvalHistory || [];
-  const lastHistory = history.length > 0 ? history[history.length - 1] : null;
-
-  const hasCustomer = !!signatures.customer;
-  const hasTechExec = !!signatures.technicalExecutive;
-  const bothParallelSigned = hasCustomer && hasTechExec;
-
-  // Determine current pending stage / role
-  let currentPendingRole = "Site Engineer";
-  let displayStatus = "Waiting";
-  let isCompleted = false;
-  let isRejected = false;
-
-  if (currentStatus === "COMPLETED") {
-    displayStatus = "Completed";
-    currentPendingRole = "None (Completed)";
-    isCompleted = true;
-  } else if (currentStatus === "REJECTED") {
-    displayStatus = "Rejected";
-    currentPendingRole = "Site Engineer (Re-inspection/Rectification)";
-    isRejected = true;
-  } else if (!hasCustomer && !hasTechExec) {
-    currentPendingRole = "Customer & Technical Executive";
-    displayStatus = "Parallel Signatures Pending";
-  } else if (!hasCustomer) {
-    currentPendingRole = "Customer";
-    displayStatus = "Customer Sign Pending";
-  } else if (!hasTechExec) {
-    currentPendingRole = "Technical Executive";
-    displayStatus = "Technical Executive Sign Pending";
-  } else if (["DRAFT", "SITE_ENGINEER_PENDING", "draft"].includes(currentStatus)) {
-    currentPendingRole = "Site Engineer";
-    displayStatus = "Site Engineer Review";
-  } else if (currentStatus === "QA_QC_PENDING") {
-    currentPendingRole = "QA/QC In-Charge";
-    displayStatus = "QA/QC Approval";
-  } else if (currentStatus === "PROJECT_MANAGER_PENDING") {
-    currentPendingRole = "Project Manager";
-    displayStatus = "Project Manager Approval";
-  } else if (currentStatus === "MANAGER_TECHNICAL_PENDING") {
-    currentPendingRole = "Manager Technical";
-    displayStatus = "Manager Technical Approval";
-  } else if (currentStatus === "GM_HUG_PENDING") {
-    currentPendingRole = "GM – HUG";
-    displayStatus = "GM – HUG Approval";
-  } else if (currentStatus === "VP_HUG_PENDING") {
-    currentPendingRole = "VP – HUG";
-    displayStatus = "VP – HUG Final Approval";
-  }
-
-  // Determine if action is pending on the currently selected role
-  let isPendingOnYou = false;
-  let actionLabel = "Review & Approve";
-  let actionButtonText = "REVIEW & APPROVE";
-  let actionRoleName = selectedRole;
-
-  if (selectedRole === "Customer" && !hasCustomer && !isCompleted && !isRejected) {
-    isPendingOnYou = true;
-    actionLabel = "Customer Signature Required";
-    actionButtonText = "SIGN";
-  } else if ((selectedRole === "Technical Executive" || selectedRole === "Technical") && !hasTechExec && !isCompleted && !isRejected) {
-    isPendingOnYou = true;
-    actionLabel = "Technical Executive Signature Required";
-    actionButtonText = "SIGN";
-  } else if (selectedRole === "Site Engineer" && ["DRAFT", "SITE_ENGINEER_PENDING", "draft", "REJECTED"].includes(currentStatus)) {
-    isPendingOnYou = true;
-    actionLabel = "Site Engineer Approval Required";
-    actionButtonText = "REVIEW & SIGN";
-  } else if ((selectedRole === "QA/QC In-Charge" || selectedRole === "QA/QC") && currentStatus === "QA_QC_PENDING") {
-    isPendingOnYou = true;
-    actionLabel = "QA/QC Approval Required";
-    actionButtonText = "REVIEW & SIGN";
-  } else if (selectedRole === "Project Manager" && currentStatus === "PROJECT_MANAGER_PENDING") {
-    isPendingOnYou = true;
-    actionLabel = "Project Manager Approval Required";
-    actionButtonText = "REVIEW & APPROVE";
-  } else if ((selectedRole === "Manager Technical" || selectedRole === "Manager – Technical") && currentStatus === "MANAGER_TECHNICAL_PENDING") {
-    isPendingOnYou = true;
-    actionLabel = "Manager Technical Approval Required";
-    actionButtonText = "REVIEW & APPROVE";
-  } else if ((selectedRole === "GM – HUG" || selectedRole === "GM - HUG") && currentStatus === "GM_HUG_PENDING") {
-    isPendingOnYou = true;
-    actionLabel = "GM – HUG Approval Required";
-    actionButtonText = "REVIEW & APPROVE";
-  } else if ((selectedRole === "VP – HUG" || selectedRole === "VP - HUG") && currentStatus === "VP_HUG_PENDING") {
-    isPendingOnYou = true;
-    actionLabel = "VP – HUG Approval Required";
-    actionButtonText = "REVIEW & APPROVE";
-  }
-
-  return {
-    isPendingOnYou,
-    actionLabel,
-    actionButtonText,
-    actionRoleName,
-    currentPendingRole,
-    displayStatus,
-    isCompleted,
-    isRejected,
-    bothParallelSigned,
-    hasCustomer,
-    hasTechExec,
-  };
-}
 
 export default function ApprovalPortal({
   onExit,
@@ -227,25 +115,36 @@ export default function ApprovalPortal({
 
   async function handleVerifyRoleLogin(e) {
     if (e) e.preventDefault();
-    if (!roleAuthPin || roleAuthPin.trim().length !== 6) {
-      setRoleAuthError("Please enter your 6-digit password.");
+    if (!userName || !userName.trim() || !roleAuthPin || !roleAuthPin.trim()) {
+      setRoleAuthError(isAdmin ? "Please enter your User Name / Email and Password (or Google ID Token)." : "Please enter your User Name and Password.");
       return;
     }
+
     setRoleAuthLoading(true);
     setRoleAuthError("");
 
     try {
+      let payload;
+      if (isAdmin && roleAuthPin.trim().length > 30) {
+        payload = { credential: roleAuthPin.trim() };
+      } else {
+        payload = { userName: userName.trim(), password: roleAuthPin.trim() };
+      }
+
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: selectedRole, pin: roleAuthPin.trim() }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || `Invalid 6-digit password for ${selectedRole}.`);
+        throw new Error(data.error || "Authentication failed. Please verify your password in the SECOND SHEET.");
       }
 
-      setAuthenticatedRoles((prev) => ({ ...prev, [selectedRole]: true }));
+      const assignedRole = data.role || selectedRole;
+      setAuthenticatedRoles((prev) => ({ ...prev, [assignedRole]: true }));
+      setSelectedRole(assignedRole);
+      if (data.user?.name) setUserName(data.user.name);
       setShowRoleAuthModal(false);
       setRoleAuthPin("");
       fetchQueue();
@@ -262,10 +161,6 @@ export default function ApprovalPortal({
       setActionError("Admin cannot sign role signature boxes directly.");
       return;
     }
-    if (!passcode || passcode.trim().length !== 6) {
-      setActionError("Please enter your 6-digit password.");
-      return;
-    }
 
     setSubmittingAction(true);
     setActionError("");
@@ -276,12 +171,9 @@ export default function ApprovalPortal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inspectionId: selectedInspection.inspectionId,
-          role: selectedRole,
-          userName: userName || selectedRole,
           action: "approve",
           comments: remarks,
           signature: signatureData,
-          passcode: passcode.trim(),
         }),
       });
 
@@ -307,10 +199,6 @@ export default function ApprovalPortal({
       setActionError("Rejection remarks are mandatory.");
       return;
     }
-    if (!passcode || passcode.trim().length !== 6) {
-      setActionError("Please enter your 6-digit password.");
-      return;
-    }
 
     setSubmittingAction(true);
     setActionError("");
@@ -321,12 +209,9 @@ export default function ApprovalPortal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inspectionId: selectedInspection.inspectionId,
-          role: selectedRole,
-          userName: userName || selectedRole,
           action: "reject",
           comments: remarks,
           signature: signatureData,
-          passcode: passcode.trim(),
         }),
       });
 
@@ -362,14 +247,26 @@ export default function ApprovalPortal({
     }));
   }, [inspections, selectedRole]);
 
-  // Count pending on current user
+  // Count categories
   const pendingOnYouCount = useMemo(() => {
     return enhancedInspections.filter((i) => i._wf.isPendingOnYou).length;
   }, [enhancedInspections]);
 
-  // Filtered Inspections
+  const waitingCount = useMemo(() => {
+    return enhancedInspections.filter((i) => !i._wf.isPendingOnYou && !i._wf.isCompleted && !i._wf.isRejected).length;
+  }, [enhancedInspections]);
+
+  const completedCount = useMemo(() => {
+    return enhancedInspections.filter((i) => i._wf.isCompleted).length;
+  }, [enhancedInspections]);
+
+  const rejectedCount = useMemo(() => {
+    return enhancedInspections.filter((i) => i._wf.isRejected).length;
+  }, [enhancedInspections]);
+
+  // Filtered & Sorted Inspections
   const filteredInspections = useMemo(() => {
-    return enhancedInspections.filter((i) => {
+    const list = enhancedInspections.filter((i) => {
       // Search Query filter
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -398,6 +295,19 @@ export default function ApprovalPortal({
       }
 
       return true;
+    });
+
+    // Smart Sorting:
+    // 1. In 'All' tab, inspections that are 'Pending on You' are pinned to the TOP.
+    // 2. Newest inspections (by updatedAt / createdAt / inspectionDate) are displayed first.
+    return list.sort((a, b) => {
+      if (filterTab === "all") {
+        if (a._wf.isPendingOnYou && !b._wf.isPendingOnYou) return -1;
+        if (!a._wf.isPendingOnYou && b._wf.isPendingOnYou) return 1;
+      }
+      const timeA = new Date(a.updatedAt || a.createdAt || a.inspectionDate || 0).getTime() || 0;
+      const timeB = new Date(b.updatedAt || b.createdAt || b.inspectionDate || 0).getTime() || 0;
+      return timeB - timeA;
     });
   }, [enhancedInspections, searchQuery, filterTab, filterProject, filterStatusDropdown, filterPendingRole, isAdmin]);
 
@@ -511,16 +421,18 @@ export default function ApprovalPortal({
                   {/* Status Filter Tabs */}
                   <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl flex-wrap">
                     {[
-                      { key: "all", label: `All (${enhancedInspections.length})` },
+                      { key: "all", label: "All", badge: enhancedInspections.length, badgeColor: "bg-slate-200 text-slate-700" },
                       {
                         key: "pending_on_you",
-                        label: `Pending on You`,
+                        label: "Pending on You",
                         badge: pendingOnYouCount,
+                        badgeColor: "bg-blue-600 text-white animate-pulse",
+                        highlight: true,
                       },
-                      { key: "waiting", label: "Waiting" },
-                      { key: "completed", label: "Completed" },
-                      { key: "rejected", label: "Rejected" },
-                    ].map(({ key, label, badge }) => (
+                      { key: "waiting", label: "Waiting", badge: waitingCount, badgeColor: "bg-amber-100 text-amber-800" },
+                      { key: "completed", label: "Completed", badge: completedCount, badgeColor: "bg-emerald-100 text-emerald-800" },
+                      { key: "rejected", label: "Rejected", badge: rejectedCount, badgeColor: "bg-rose-100 text-rose-800" },
+                    ].map(({ key, label, badge, badgeColor, highlight }) => (
                       <button
                         key={key}
                         onClick={() => setFilterTab(key)}
@@ -531,11 +443,9 @@ export default function ApprovalPortal({
                         }`}
                       >
                         <span>{label}</span>
-                        {badge > 0 && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-600 text-white animate-pulse">
-                            {badge}
-                          </span>
-                        )}
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${filterTab === key && highlight ? "bg-blue-600 text-white" : badgeColor}`}>
+                          {badge}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -941,11 +851,13 @@ export default function ApprovalPortal({
 
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shrink-0">
-                  <KeyRound size={20} />
+                  <ShieldCheck size={20} />
                 </div>
                 <div>
                   <h3 className="font-display font-bold text-lg text-slate-900">{selectedRole} Verification</h3>
-                  <p className="font-body text-xs text-slate-500">Enter 6-digit role password to unlock</p>
+                  <p className="font-body text-xs text-slate-500">
+                    Sign in with password from SECOND SHEET
+                  </p>
                 </div>
               </div>
 
@@ -958,22 +870,33 @@ export default function ApprovalPortal({
               <form onSubmit={handleVerifyRoleLogin} className="space-y-4">
                 <div>
                   <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
-                    6-Digit Password <span className="text-rose-500">*</span>
+                    User Name / Email <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="e.g. Raj or admin@dac.com"
+                    className="w-full text-xs font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
+                    Password (from SECOND SHEET) <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="password"
-                    maxLength={6}
-                    inputMode="numeric"
                     value={roleAuthPin}
                     onChange={(e) => {
                       setRoleAuthPin(e.target.value);
                       setRoleAuthError("");
                     }}
-                    placeholder="••••••"
+                    placeholder={isAdmin ? "Google Token or Admin Password" : "e.g. TechExec@1001"}
                     autoFocus
-                    autoComplete="new-password"
-                    className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    className="w-full text-sm font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">Verified against Column G in the SECOND SHEET (Users tab)</p>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-1">
@@ -1112,7 +1035,7 @@ function DetailedChecklist({ inspection }) {
                 <span className={`font-bold px-2.5 py-1 rounded-full uppercase text-[10px] ${
                   cell.status === "pass" ? "bg-emerald-100 text-emerald-800" : cell.status === "fail" ? "bg-rose-100 text-rose-800" : "bg-slate-200 text-slate-700"
                 }`}>
-                  {cell.status}
+                  {cell.status === "fail" ? "SNAG" : cell.status}
                 </span>
                 {cell.photos && cell.photos.length > 0 && (
                   <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
@@ -1152,7 +1075,8 @@ function SignaturesOverviewSection({ signatures }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {ROLES_LIST.map((r) => {
           const sig = signatures[r.key];
-          const isSigned = !!sig;
+          const dataUrl = typeof sig === "string" ? (sig.startsWith("data:") ? sig : null) : (sig?.dataUrl || null);
+          const isSigned = !!sig && (sig === "SIGNED" || sig.status === "signed" || !!dataUrl || !!sig.signer);
           return (
             <div
               key={r.key}
@@ -1161,8 +1085,8 @@ function SignaturesOverviewSection({ signatures }) {
               }`}
             >
               <div className="w-full flex-1 flex items-center justify-center">
-                {sig && sig.startsWith("data:") ? (
-                  <img src={sig} alt={r.label} className="max-h-10 object-contain" />
+                {dataUrl ? (
+                  <img src={dataUrl} alt={r.label} className="max-h-12 object-contain" />
                 ) : isSigned ? (
                   <span className="font-body text-xs font-bold text-emerald-800">✓ Signed</span>
                 ) : (
@@ -1278,7 +1202,7 @@ function exportTrimmedSignature(canvas) {
 /**
  * Two-Step Signature & Approval Modal with Precise Coordinate Tracking
  */
-function SignatureApprovalModal({ role, userName, inspection, remarks, setRemarks, passcode, setPasscode, onClose, onConfirm, submitting, error, onSignatureCaptured }) {
+function SignatureApprovalModal({ role, userName, inspection, remarks, setRemarks, onClose, onConfirm, submitting, error, onSignatureCaptured }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const drawingRef = useRef(false);
@@ -1331,7 +1255,6 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
     const dpr = canvas._dpr || 1;
-    // Map screen touch coordinates directly to high-DPI canvas buffer coordinates
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     return {
@@ -1383,7 +1306,7 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
             <ShieldCheck size={16} /> Role Verification & Sign-off
           </div>
           <h3 className="font-display font-bold text-lg text-slate-900">
-            {role} Approval
+            {role} Approval & Sign
           </h3>
           <p className="font-body text-xs text-slate-500">
             Inspection: <b>{inspection?.inspectionId}</b> · Unit <b>{inspection?.unitNumber}</b>
@@ -1397,24 +1320,13 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
         )}
 
         <div className="space-y-4">
-          {/* Re-authenticate with 6-digit PIN */}
-          <div>
-            <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1">
-                <KeyRound size={13} className="text-blue-600" /> Enter 6-Digit Password for {role} <span className="text-rose-500">*</span>
-              </span>
-            </label>
-            <input
-              type="password"
-              maxLength={6}
-              inputMode="numeric"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              placeholder="••••••"
-              autoComplete="new-password"
-              autoFocus
-              className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
+          {/* Verified Session Identity Badge */}
+          <div className="flex items-center gap-2.5 p-3 rounded-xl bg-blue-50 border border-blue-100 text-xs font-body text-blue-900">
+            <ShieldCheck size={18} className="text-blue-600 shrink-0" />
+            <div>
+              <p className="font-bold">Signing as {role}</p>
+              <p className="text-[11px] text-blue-700">Authenticated user: <b>{userName || role}</b></p>
+            </div>
           </div>
 
           {/* Optional comments */}
@@ -1435,7 +1347,7 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="font-body text-xs font-semibold text-slate-700">
-                Digital Signature
+                Digital Signature <span className="text-rose-500">*</span>
               </label>
               <button onClick={clearCanvas} className="text-[11px] font-body text-slate-500 hover:text-slate-800 flex items-center gap-1">
                 <RotateCcw size={11} /> Clear
@@ -1454,7 +1366,7 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
                 className="w-full h-full cursor-crosshair block"
               />
               <span className="absolute bottom-2 left-3 font-mono text-[10px] text-slate-300 pointer-events-none select-none">
-                Sign with finger, stylus, or pointer
+                Draw signature here with finger, stylus, or mouse
               </span>
             </div>
           </div>
@@ -1466,10 +1378,10 @@ function SignatureApprovalModal({ role, userName, inspection, remarks, setRemark
           </button>
           <button
             onClick={onConfirm}
-            disabled={submitting || !passcode || passcode.length !== 6}
+            disabled={submitting}
             className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
           >
-            {submitting ? "Verifying & Approving..." : "Authenticate & Approve"}
+            {submitting ? "Signing & Approving..." : "Confirm & Sign"}
           </button>
         </div>
       </div>
@@ -1503,25 +1415,6 @@ function RejectionModal({ role, userName, inspection, remarks, setRemarks, passc
 
         <div className="space-y-4">
           <div>
-            <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1">
-                <KeyRound size={13} className="text-rose-600" /> Enter 6-Digit Password <span className="text-rose-500">*</span>
-              </span>
-            </label>
-            <input
-              type="password"
-              maxLength={6}
-              inputMode="numeric"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              placeholder="••••••"
-              autoComplete="new-password"
-              autoFocus
-              className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-300"
-            />
-          </div>
-
-          <div>
             <label className="font-body text-xs font-semibold text-slate-700 mb-1.5 block">
               Reason for Rejection / Mandatory Rectifications <span className="text-rose-500">*</span>
             </label>
@@ -1541,7 +1434,7 @@ function RejectionModal({ role, userName, inspection, remarks, setRemarks, passc
           </button>
           <button
             onClick={onConfirm}
-            disabled={submitting || !remarks.trim() || !passcode || passcode.length !== 6}
+            disabled={submitting || !remarks.trim()}
             className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
           >
             {submitting ? "Rejecting..." : "Confirm Rejection"}

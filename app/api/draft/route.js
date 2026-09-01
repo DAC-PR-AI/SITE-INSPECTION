@@ -1,27 +1,18 @@
 import { NextResponse } from "next/server";
 import { upsertInspection, getInspection, backendName } from "../../../lib/store";
-import { verifyRolePassword } from "../../../lib/auth";
+import { getSessionUser } from "../../../lib/session";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
+import { sanitizeInspectionPayload } from "../../../lib/security";
 
 /**
  * /api/draft — Save an in-progress inspection (autosave / partial).
  *
- * Security: Requires a valid Site Engineer or Customer passcode on POST.
- * GET is also passcode-protected to prevent ID enumeration of draft data.
+ * Security: Requires an active session cookie (dac_session).
  */
 
 export async function POST(request) {
   try {
     const ip = getClientIp(request);
-    const data = await request.json();
-
-    if (!data.inspectionId) {
-      return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
-    }
-
-    // Require Site Engineer passcode to save/update a draft
-    const passcode = data.passcode || "";
-    const roleParam = data.role || "Site Engineer";
 
     // Rate limit check for draft saves (1000 requests per 15 min window)
     const { limited, resetInMs } = checkRateLimit(ip, "DRAFT_WRITE", 1000);
@@ -33,13 +24,26 @@ export async function POST(request) {
       );
     }
 
-    // Allow Site Engineer or Start Inspection passcode to save drafts
-    const seValid = verifyRolePassword("Site Engineer", passcode);
-    const startValid = verifyRolePassword("Start Inspection", passcode);
-
-    if (!seValid && !startValid) {
+    // Verify session
+    const sessionUser = getSessionUser(request);
+    if (!sessionUser) {
       recordFailedAttempt(ip, "DRAFT_WRITE");
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+      return NextResponse.json(
+        { error: "Authentication required to save draft." },
+        { status: 401 }
+      );
+    }
+
+    let data;
+    try {
+      data = await request.json();
+      data = sanitizeInspectionPayload(data);
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
+    }
+
+    if (!data || !data.inspectionId) {
+      return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
 
     clearRateLimit(ip, "DRAFT_WRITE");

@@ -102,57 +102,22 @@ export default function WorkflowStepper({ inspection, currentUserRole = "Admin" 
           isPendingOnYou={false}
         />
 
-        {/* PARALLEL STEP: Customer & Technical Executive Signatures Fork */}
+        {/* LEVEL 1: Technical Executive + Customer Signatures */}
         <div className="relative border-l-2 border-slate-200 pl-4 sm:pl-6 ml-2.5 pb-2">
           {/* Section banner */}
           <div className="mb-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold uppercase tracking-wider">
               <UserCheck size={14} className={bothParallelSigned ? "text-emerald-600" : "text-amber-600"} />
-              <span>Parallel Signatures Requirement</span>
+              <span>Level 1 — Technical Executive + Customer Signatures</span>
             </div>
             <p className="font-body text-[11px] text-slate-500 mt-1">
-              Customer and Technical Executive sign in parallel before the workflow advances to Site Engineer.
+              Both Technical Executive and Customer signatures must be completed before Level 2 (Site Engineer) unlocks.
             </p>
           </div>
 
-          {/* Parallel Fork Visualization Grid */}
+          {/* Level 1 Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-            {/* Parallel Node 1: Customer Signature */}
-            <div className={`p-3.5 rounded-xl border transition-all ${
-              hasCustomerSigned
-                ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
-                : isCustomerPendingOnYou
-                ? "bg-blue-50/90 border-blue-300 ring-2 ring-blue-500/20 text-blue-900"
-                : "bg-amber-50/60 border-amber-200 text-amber-900"
-            }`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full shrink-0 ${
-                    hasCustomerSigned ? "bg-emerald-500" : isCustomerPendingOnYou ? "bg-blue-600 animate-ping" : "bg-amber-500"
-                  }`} />
-                  <div>
-                    <h4 className="font-body font-bold text-xs sm:text-sm">Customer Signature</h4>
-                    <p className="font-body text-[11px] text-slate-500">Unit Handover Confirmation</p>
-                  </div>
-                </div>
-
-                {hasCustomerSigned ? (
-                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
-                    ✓ Completed
-                  </span>
-                ) : isCustomerPendingOnYou ? (
-                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-600 text-white shadow-xs shrink-0 animate-pulse">
-                    ● PENDING ON YOU
-                  </span>
-                ) : (
-                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
-                    Pending
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Parallel Node 2: Technical Executive Signature */}
+            {/* Level 1 Node 1: Technical Executive */}
             <div className={`p-3.5 rounded-xl border transition-all ${
               hasTechExecSigned
                 ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
@@ -167,15 +132,50 @@ export default function WorkflowStepper({ inspection, currentUserRole = "Admin" 
                   }`} />
                   <div>
                     <h4 className="font-body font-bold text-xs sm:text-sm">Technical Executive</h4>
-                    <p className="font-body text-[11px] text-slate-500">Technical Inspection Sign-off</p>
+                    <p className="font-body text-[11px] text-slate-500">Level 1 — Technical Inspection Sign-off</p>
                   </div>
                 </div>
 
                 {hasTechExecSigned ? (
                   <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
-                    ✓ Completed
+                    ✓ Level 1 Signed
                   </span>
                 ) : isTechExecPendingOnYou ? (
+                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-600 text-white shadow-xs shrink-0 animate-pulse">
+                    ● PENDING ON YOU
+                  </span>
+                ) : (
+                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
+                    Pending
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Level 1 Node 2: Customer */}
+            <div className={`p-3.5 rounded-xl border transition-all ${
+              hasCustomerSigned
+                ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
+                : isCustomerPendingOnYou
+                ? "bg-blue-50/90 border-blue-300 ring-2 ring-blue-500/20 text-blue-900"
+                : "bg-amber-50/60 border-amber-200 text-amber-900"
+            }`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full shrink-0 ${
+                    hasCustomerSigned ? "bg-emerald-500" : isCustomerPendingOnYou ? "bg-blue-600 animate-ping" : "bg-amber-500"
+                  }`} />
+                  <div>
+                    <h4 className="font-body font-bold text-xs sm:text-sm">Customer Signature</h4>
+                    <p className="font-body text-[11px] text-slate-500">Level 1 — Handover Confirmation</p>
+                  </div>
+                </div>
+
+                {hasCustomerSigned ? (
+                  <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                    ✓ Level 1 Signed
+                  </span>
+                ) : isCustomerPendingOnYou ? (
                   <span className="font-body text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-600 text-white shadow-xs shrink-0 animate-pulse">
                     ● PENDING ON YOU
                   </span>
@@ -189,11 +189,11 @@ export default function WorkflowStepper({ inspection, currentUserRole = "Admin" 
           </div>
         </div>
 
-        {/* STEP 2: Site Engineer */}
+        {/* LEVEL 2: Site Engineer */}
         <TimelineNode
-          title="Site Engineer"
+          title="Level 2 — Site Engineer"
           subtitle="On-site Inspection Verification & Sign-off"
-          status={isSiteEngRejected ? "rejected" : isSiteEngComplete ? "completed" : isSiteEngPending ? "pending" : "locked"}
+          status={isSiteEngRejected ? "rejected" : isSiteEngComplete ? "completed" : (isSiteEngPending && bothParallelSigned) ? "pending" : "locked"}
           statusText={
             isSiteEngRejected
               ? "✕ Rejected"
@@ -201,12 +201,12 @@ export default function WorkflowStepper({ inspection, currentUserRole = "Admin" 
               ? "✓ Completed"
               : isSiteEngPendingOnYou
               ? "● PENDING ON YOU"
-              : isSiteEngPending
+              : (isSiteEngPending && bothParallelSigned)
               ? "Pending"
-              : "🔒 Waiting"
+              : "🔒 Waiting on Level 1"
           }
           isPendingOnYou={isSiteEngPendingOnYou}
-          note={isSiteEngPending && !bothParallelSigned ? "Requires both Customer & Tech Exec signatures to advance" : null}
+          note={isSiteEngPending && !bothParallelSigned ? "Requires both Technical Executive & Customer signatures to advance" : null}
         />
 
         {/* STEP 3: QA / QC In-Charge */}

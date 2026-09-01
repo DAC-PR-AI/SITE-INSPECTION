@@ -1,12 +1,41 @@
-node_modules
-.next
-out
-.env
-.env.local
-.vercel
-.data
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing & logs
+/coverage
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# next.js build output
+/.next/
+/out/
+/.vercel
+
+# production / local data & cache
+/.data
+/.tempmediaStorage
+
+# environment variables & secrets (NEVER COMMIT)
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# debug / system files
 .DS_Store
-scratch/
+*.pem
+Thumbs.db
+
+# scratch / test scripts
+/scratch/
 api-test.mjs
 orig_crane.txt
+qa-full-audit.mjs
+test-*.mjs
+test-*.js

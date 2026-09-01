@@ -1,29 +1,32 @@
 import { NextResponse } from "next/server";
 import { upsertInspection, backendName } from "../../../lib/store";
-import { verifyRolePassword } from "../../../lib/auth";
+import { getSessionUser } from "../../../lib/session";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
+import { WORKFLOW_STATES, getSpotSignatureState } from "../../../lib/workflow";
+import { sanitizeInspectionPayload } from "../../../lib/security";
 import crypto from "crypto";
 
 /**
- * /api/submit — Final submission of a completed inspection by Site Engineer.
- * Requires a valid Site Engineer 6-digit passcode.
+ * Roles that are permitted to CREATE / SUBMIT an inspection.
+ * ONLY Admin and Technical Executive may start an inspection.
+ */
+const INSPECTION_CREATOR_ROLES = ["admin", "technical executive"];
+
+function isCreatorRole(role) {
+  if (!role) return false;
+  return INSPECTION_CREATOR_ROLES.includes(String(role).trim().toLowerCase());
+}
+
+/**
+ * /api/submit — Final submission of a completed inspection.
+ * Requires an authenticated server-side session with Admin or Technical Executive role.
  */
 export async function POST(request) {
   try {
     const ip = getClientIp(request);
-    let data;
-    try {
-      data = await request.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
-    }
 
-    if (!data || !data.inspectionId) {
-      return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
-    }
-
-    // Rate limit
-    const { limited, resetInMs } = checkRateLimit(ip, "SITE_ENGINEER");
+    // Rate limit check (100 submissions per 15 min window)
+    const { limited, resetInMs } = checkRateLimit(ip, "SUBMIT", 100);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
@@ -32,21 +35,51 @@ export async function POST(request) {
       );
     }
 
-    // Require Site Engineer / Start Inspection passcode
-    // Both roles share the same PIN — the login captures it as "Start Inspection"
-    const passcode = data.passcode || "";
-    const isValid =
-      verifyRolePassword("Site Engineer", passcode) ||
-      verifyRolePassword("Start Inspection", passcode);
-    if (!isValid) {
-      recordFailedAttempt(ip, "SITE_ENGINEER");
-      return NextResponse.json({ error: "Invalid credentials. Please check your 6-digit password." }, { status: 401 });
+    // ── Server-side session authentication ───────────────────────────────
+    const sessionUser = getSessionUser(request);
+    if (!sessionUser) {
+      recordFailedAttempt(ip, "SUBMIT");
+      return NextResponse.json(
+        { error: "Authentication required. Please log in to start an inspection." },
+        { status: 401 }
+      );
     }
 
-    clearRateLimit(ip, "SITE_ENGINEER");
+    // ── Role authorisation: ONLY Admin and Technical Executive ────────────
+    if (!isCreatorRole(sessionUser.role)) {
+      return NextResponse.json(
+        {
+          error: `Access denied. Only Admin and Technical Executive may create inspections. Your role: ${sessionUser.role}.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    clearRateLimit(ip, "SUBMIT");
+
+    let data;
+    try {
+      data = await request.json();
+      data = sanitizeInspectionPayload(data);
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
+    }
+
+    if (!data || !data.inspectionId) {
+      return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
+    }
 
     const now = new Date();
-    const timestampStr = `${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const timestampStr = `${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+
+    const { isLevel1Complete } = getSpotSignatureState(data);
+    const hasSiteEngineerSigned = !!data.signatures?.siteEngineer;
+    let targetStatus = WORKFLOW_STATES.SPOT_SIGNATURE_PENDING;
+    if (isLevel1Complete && hasSiteEngineerSigned) {
+      targetStatus = WORKFLOW_STATES.QA_QC_PENDING;
+    } else if (isLevel1Complete) {
+      targetStatus = WORKFLOW_STATES.SITE_ENGINEER_PENDING;
+    }
 
     const initialAuditRecord = {
       id: crypto.randomUUID(),
@@ -54,34 +87,37 @@ export async function POST(request) {
       project: data.projectName || "",
       unit: data.unitNumber || "",
       inspectionType: data.inspectionType || "IJI",
-      role: "Site Engineer",
-      userName: data.siteEngineerName || "Site Engineer",
-      action: "Submitted & Approved",
-      status: "QA_QC_PENDING",
-      comments: data.generalRemarks || "Initial inspection completed",
+      // Individual identity from authenticated session
+      userId:   sessionUser.user_id || "",
+      userNumber: sessionUser.number || "",
+      role: sessionUser.role,
+      userName: sessionUser.name || sessionUser.role,
+      action: "Inspection Created",
+      status: targetStatus,
+      comments: data.generalRemarks || "Initial inspection form submitted.",
       timestamp: timestampStr,
-      signature: data.signatures?.siteEngineer ? "Captured" : "None",
+      signature: "None",
     };
 
     const approvalHistory = data.approvalHistory || [];
-    if (!approvalHistory.some((a) => a.role === "Site Engineer" && a.action.includes("Submitted"))) {
+    if (!approvalHistory.some((a) => a.role === sessionUser.role && a.action.includes("Created"))) {
       approvalHistory.push(initialAuditRecord);
     }
 
-    // Strip passcode before storing
+    // Strip any client-supplied passcode / sensitive fields before storing
     const { passcode: _p, ...cleanData } = data;
 
     const updatedData = {
       ...cleanData,
       inspectionType: cleanData.inspectionType || "IJI",
-      workflowStatus: "QA_QC_PENDING",
+      workflowStatus: targetStatus,
       status: "submitted",
       approvalHistory,
       latestAuditRecord: initialAuditRecord,
     };
 
     const result = await upsertInspection(updatedData, { submitting: true });
-    return NextResponse.json({ ...result, backend: backendName, workflowStatus: "QA_QC_PENDING" });
+    return NextResponse.json({ ...result, backend: backendName, workflowStatus: targetStatus });
   } catch (err) {
     console.error("[submit] POST error:", err);
     const status = err.code === "PAYLOAD_TOO_LARGE" ? 413 : 500;

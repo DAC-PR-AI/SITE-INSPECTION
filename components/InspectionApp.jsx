@@ -51,11 +51,11 @@ const ITEMS = [
 ];
 
 const SIGNATORIES = [
+  { key: "technicalExecutive", label: "Technical Executive", directSign: true },
   { key: "customer", label: "Customer Sign", directSign: true },
-  { key: "siteEngineer", label: "Site Engineer", directSign: true },
+  { key: "siteEngineer", label: "Site Engineer", directSign: false },
   { key: "qaqc", label: "QA/QC In-Charge", directSign: false },
   { key: "projectManager", label: "Project Manager", directSign: false },
-  { key: "technicalExecutive", label: "Technical Executive", directSign: false },
   { key: "managerTechnical", label: "Manager Technical", directSign: false },
   { key: "gmHug", label: "GM – HUG", subtitle: "Mr. Vijayachandar", directSign: false },
   { key: "vpHug", label: "VP – HUG", subtitle: "Mrs. Sony Dhiraj", directSign: false },
@@ -582,7 +582,7 @@ function SignatureBox({ signatory, value, onSign, hasVerificationPhoto = true, p
 /* ---------------------------------------------------------------------- */
 const STATUS_META = {
   pass: { label: "Pass", icon: CheckCircle2, color: "var(--pass)", bg: "var(--pass-bg)" },
-  fail: { label: "Fail", icon: XCircle, color: "var(--fail)", bg: "var(--fail-bg)" },
+  fail: { label: "Snag", icon: XCircle, color: "var(--fail)", bg: "var(--fail-bg)" },
   na: { label: "N/A", icon: MinusCircle, color: "var(--na)", bg: "var(--na-bg)" },
 };
 
@@ -591,7 +591,7 @@ function StatusSegmented({ value, onChange }) {
     <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 shadow-inner">
       {[
         { key: "pass", label: "Pass", icon: CheckCircle2, activeBg: "bg-emerald-500 text-white shadow-md shadow-emerald-500/25 border-emerald-400" },
-        { key: "fail", label: "Fail", icon: XCircle, activeBg: "bg-rose-500 text-white shadow-md shadow-rose-500/25 border-rose-400" },
+        { key: "fail", label: "Snag", icon: XCircle, activeBg: "bg-rose-500 text-white shadow-md shadow-rose-500/25 border-rose-400" },
         { key: "na", label: "N/A", icon: MinusCircle, activeBg: "bg-slate-700 text-white shadow-md shadow-slate-700/20 border-slate-600" },
       ].map(({ key, label, icon: Icon, activeBg }) => {
         const active = value === key;
@@ -615,9 +615,9 @@ function StatusSegmented({ value, onChange }) {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Fail detail expansion                                                   */
+/* Snag detail expansion                                                   */
 /* ---------------------------------------------------------------------- */
-function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
+function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey, projectName = "", unitNumber = "" }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -628,7 +628,7 @@ function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
       const room = Math.max(0, 4 - existing.length);
       const arr = Array.from(files).slice(0, room);
       const compressed = await Promise.all(arr.map((f) => compressImage(f)));
-      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'fail', dataUrl, itemId, areaKey, data?.projectName, data?.unitNumber)));
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'fail', dataUrl, itemId, areaKey, projectName, unitNumber)));
       onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
     } finally {
       setBusy(false);
@@ -638,7 +638,7 @@ function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
   return (
     <div className="mt-3 p-4 rounded-2xl bg-rose-50/60 border border-rose-200/80 space-y-4 shadow-sm" style={{ animation: "fadein .2s cubic-bezier(0.16, 1, 0.3, 1)" }}>
       <div className="flex items-center gap-2 text-rose-700 font-semibold text-xs uppercase tracking-wider">
-        <AlertTriangle size={14} /> Defect Details & Photo Evidence
+        <AlertTriangle size={14} /> Snag Details & Photo Evidence
       </div>
       
       <div>
@@ -718,7 +718,7 @@ function FailDetails({ cell, onUpdate, inspectionId, itemId, areaKey }) {
 /* ---------------------------------------------------------------------- */
 /* Pass photos (reuses same compressImage + storage pattern as FailDetails) */
 /* ---------------------------------------------------------------------- */
-function PassPhotos({ cell, onUpdate, inspectionId, itemId, areaKey }) {
+function PassPhotos({ cell, onUpdate, inspectionId, itemId, areaKey, projectName = "", unitNumber = "" }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -729,7 +729,7 @@ function PassPhotos({ cell, onUpdate, inspectionId, itemId, areaKey }) {
       const room = Math.max(0, 4 - existing.length);
       const arr = Array.from(files).slice(0, room);
       const compressed = await Promise.all(arr.map((f) => compressImage(f)));
-      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'pass', dataUrl, itemId, areaKey, data?.projectName, data?.unitNumber)));
+      const uploadedUrls = await Promise.all(compressed.map((dataUrl) => uploadPhoto(inspectionId, 'pass', dataUrl, itemId, areaKey, projectName, unitNumber)));
       onUpdate({ photos: [...existing, ...uploadedUrls.map((url) => ({ id: Math.random().toString(36).slice(2), dataUrl: url, url }))] });
     } finally {
       setBusy(false);
@@ -780,8 +780,8 @@ function ItemRow({ item, areaKey, data, updateCell }) {
         </div>
         <StatusSegmented value={cell.status} onChange={(s) => updateCell(item.id, areaKey, { status: s })} />
       </div>
-      {cell.status === "fail" && <FailDetails cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
-      {cell.status === "pass" && <PassPhotos cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
+      {cell.status === "fail" && <FailDetails cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} projectName={data.projectName} unitNumber={data.unitNumber} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
+      {cell.status === "pass" && <PassPhotos cell={cell} inspectionId={data.inspectionId} itemId={item.id} areaKey={areaKey} projectName={data.projectName} unitNumber={data.unitNumber} onUpdate={(patch) => updateCell(item.id, areaKey, patch)} />}
       {cell.status && cell.status !== "fail" && (
         <div className="mt-2 pt-2 border-t border-slate-100">
           <input value={cell.notes || ""} onChange={(e) => updateCell(item.id, areaKey, { notes: e.target.value })} placeholder="Add a note for this item (optional)…"
@@ -819,7 +819,7 @@ function ProgressBar({ stats }) {
         </div>
         <div className="flex gap-4 mt-2 font-body text-xs text-slate-600 flex-wrap">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /><b className="text-emerald-700">{stats.passed}</b> Passed</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block" /><b className="text-rose-700">{stats.failed}</b> Failed</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block" /><b className="text-rose-700">{stats.failed}</b> Snags</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-500 inline-block" /><b className="text-slate-700">{stats.na}</b> N/A</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /><b className="text-blue-700">{stats.total - stats.completed}</b> Remaining</span>
         </div>
@@ -861,7 +861,7 @@ function MatrixOverview({ data, updateCell, onJump }) {
         <div className="flex items-center gap-4 text-xs font-body text-slate-600 flex-wrap">
           <span className="font-semibold text-slate-800">Checkbox Legend:</span>
           <span className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold"><Check size={12} /></span> Pass (Tick)</span>
-          <span className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-rose-500 text-white flex items-center justify-center text-[10px] font-bold"><X size={12} /></span> Fail</span>
+          <span className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-rose-500 text-white flex items-center justify-center text-[10px] font-bold"><X size={12} /></span> Snag</span>
           <span className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-slate-600 text-white flex items-center justify-center text-[10px] font-bold"><MinusCircle size={12} /></span> N/A</span>
           <span className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md border-2 border-slate-300 bg-white" /> Pending</span>
         </div>
@@ -972,44 +972,60 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [portalError, setPortalError] = useState("");
   const [verifyingPortalPin, setVerifyingPortalPin] = useState(false);
 
-  useEffect(() => {
-    const d = new Date();
-    setNowDate(d.toISOString().slice(0, 10));
-    setNowTime(d.toTimeString().slice(0, 5));
-  }, []);
+  const [authMode, setAuthMode] = useState("number"); // "number" | "google"
+  const [authName, setAuthName] = useState("Raj");
+  const [authNumber, setAuthNumber] = useState("");
+  const [googleCredential, setGoogleCredential] = useState("");
 
   const handleStartClick = () => {
     if (!inspectionType || !project || !unit) return;
-    setPassword("");
     setPasswordError("");
+    setAuthNumber("");
+    setGoogleCredential("");
     setShowPasswordModal(true);
   };
 
   const handlePasswordSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!password || password.trim().length !== 6) {
-      setPasswordError("Please enter the 6-digit password.");
-      return;
-    }
-
     setVerifyingPin(true);
     setPasswordError("");
 
     try {
+      let payload;
+      if (authMode === "google") {
+        if (!googleCredential || !googleCredential.trim()) {
+          setPasswordError("Please enter your Google credential token or sign in with Google.");
+          setVerifyingPin(false);
+          return;
+        }
+        payload = { credential: googleCredential.trim() };
+      } else {
+        if (!authName || !authName.trim() || !authNumber || !authNumber.trim()) {
+          setPasswordError("Please enter both User Name/Email and Password.");
+          setVerifyingPin(false);
+          return;
+        }
+        payload = { userName: authName.trim(), password: authNumber.trim() };
+      }
+
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "Start Inspection", pin: password.trim() }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        const verifiedPin = password.trim();
+        const role = (data.role || "").trim().toLowerCase();
+        if (role !== "admin" && role !== "technical executive") {
+          setPasswordError(`Access denied. Only Admin and Technical Executive may start an inspection. Your role is ${data.role}.`);
+          return;
+        }
+
         setShowPasswordModal(false);
-        setPassword("");
         setPasswordError("");
-        await onStart(project, unit, inspectionType, id, verifiedPin);
+        await onStart(project, unit, inspectionType, id, data.user?.name || "session_auth");
       } else {
-        setPasswordError(data.error || "Incorrect password. Please try again.");
+        setPasswordError(data.error || "Authentication failed. Please check your credentials against the SECOND SHEET.");
       }
     } catch {
       setPasswordError("Authentication failed. Please check your connection.");
@@ -1020,31 +1036,38 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 
   const handleOpenPortalSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!portalPin || portalPin.trim().length !== 6) {
-      setPortalError("Please enter the 6-digit password.");
-      return;
-    }
-
     setVerifyingPortalPin(true);
     setPortalError("");
 
     try {
+      let payload;
+      if (portalRole === "Admin" && portalPin.trim().length > 30) {
+        payload = { credential: portalPin.trim() };
+      } else {
+        if (!portalName || !portalName.trim() || !portalPin || !portalPin.trim()) {
+          setPortalError("Please enter your User Name / Email and Password.");
+          setVerifyingPortalPin(false);
+          return;
+        }
+        payload = { userName: portalName.trim(), password: portalPin.trim() };
+      }
+
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: portalRole, pin: portalPin.trim() }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
         setShowPortalModal(false);
         setPortalPin("");
         setPortalError("");
-        onOpenPortal({ role: portalRole, userName: portalName.trim() || portalRole });
+        onOpenPortal({ role: data.role || portalRole, userName: data.user?.name || portalName.trim() || data.role, user: data.user });
       } else {
-        setPortalError(data.error || `Incorrect 6-digit password for ${portalRole}.`);
+        setPortalError(data.error || "Authentication failed. Please verify your password in the SECOND SHEET.");
       }
     } catch (err) {
-      setPortalError(err.message || `Authentication failed for ${portalRole}.`);
+      setPortalError(err.message || "Authentication failed. Please check your connection.");
     } finally {
       setVerifyingPortalPin(false);
     }
@@ -1260,36 +1283,83 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
             </button>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shrink-0">
-                <Lock size={20} />
+                <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="font-display font-bold text-lg text-slate-900">Start Inspection</h3>
-                <p className="font-body text-xs text-slate-500">Enter 6-digit password to begin</p>
+                <h3 className="font-display font-bold text-lg text-slate-900">Start Inspection Authentication</h3>
+                <p className="font-body text-xs text-slate-500">Only Admin & Technical Executive can start</p>
               </div>
             </div>
 
-            <form onSubmit={handlePasswordSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">6-Digit Password <span className="text-rose-500">*</span></label>
-                <input
-                  type="password"
-                  maxLength={6}
-                  inputMode="numeric"
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
-                  placeholder="••••••"
-                  autoFocus
-                  autoComplete="new-password"
-                  className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
-                {passwordError && (
-                  <p className="font-body text-xs text-rose-600 mt-1.5 flex items-center gap-1">
-                    <AlertTriangle size={12} className="shrink-0" /> {passwordError}
-                  </p>
-                )}
-              </div>
+            {/* Auth Mode Toggle */}
+            <div className="flex gap-1 p-1 bg-slate-100 rounded-xl my-3">
+              <button
+                type="button"
+                onClick={() => { setAuthMode("number"); setPasswordError(""); }}
+                className={`flex-1 text-xs font-body font-bold py-1.5 rounded-lg transition-all ${
+                  authMode === "number" ? "bg-white shadow-xs text-blue-700" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Technical Executive
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMode("google"); setPasswordError(""); }}
+                className={`flex-1 text-xs font-body font-bold py-1.5 rounded-lg transition-all ${
+                  authMode === "google" ? "bg-white shadow-xs text-blue-700" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Admin (Google)
+              </button>
+            </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+            <form onSubmit={handlePasswordSubmit} className="mt-2 space-y-3">
+              {authMode === "number" ? (
+                <>
+                  <div>
+                    <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">User Name / Email <span className="text-rose-500">*</span></label>
+                    <input
+                      type="text"
+                      value={authName}
+                      onChange={(e) => { setAuthName(e.target.value); setPasswordError(""); }}
+                      placeholder="e.g. Raj"
+                      autoFocus
+                      className="w-full text-xs font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">Password <span className="text-rose-500">*</span></label>
+                    <input
+                      type="password"
+                      value={authNumber}
+                      onChange={(e) => { setAuthNumber(e.target.value); setPasswordError(""); }}
+                      placeholder="e.g. TechExec@1001"
+                      className="w-full text-xs font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Found in Column G of the SECOND SHEET (Users tab)</p>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">Google Credential Token <span className="text-rose-500">*</span></label>
+                  <input
+                    type="password"
+                    value={googleCredential}
+                    onChange={(e) => { setGoogleCredential(e.target.value); setPasswordError(""); }}
+                    placeholder="Enter Google ID token"
+                    autoFocus
+                    className="w-full text-xs font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                </div>
+              )}
+
+              {passwordError && (
+                <p className="font-body text-xs text-rose-600 mt-1.5 flex items-start gap-1 p-2 bg-rose-50 rounded-lg border border-rose-100">
+                  <AlertTriangle size={14} className="shrink-0 text-rose-500 mt-0.5" /> <span>{passwordError}</span>
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowPasswordModal(false)}
@@ -1300,10 +1370,9 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <button
                   type="submit"
                   disabled={verifyingPin}
-                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
+                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-2"
                 >
-                  {verifyingPin ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
-                  {verifyingPin ? "Verifying..." : "Continue"}
+                  {verifyingPin ? "Verifying..." : "Authenticate & Start"}
                 </button>
               </div>
             </form>
@@ -1322,71 +1391,62 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="font-display font-bold text-lg text-slate-900">Portal Role Login</h3>
-                <p className="font-body text-xs text-slate-500">Select role & enter 6-digit password</p>
+                <h3 className="font-display font-bold text-lg text-slate-900">Portal Login</h3>
+                <p className="font-body text-xs text-slate-500">Sign in with password from SECOND SHEET</p>
               </div>
             </div>
 
-            <form onSubmit={handleOpenPortalSubmit} className="mt-4 space-y-3.5">
+            <form onSubmit={handleOpenPortalSubmit} className="mt-4 space-y-3">
               <div>
-                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
-                  Select Your Role <span className="text-rose-500">*</span>
-                </label>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">Role</label>
                 <select
                   value={portalRole}
-                  onChange={(e) => {
-                    const r = e.target.value;
-                    setPortalRole(r);
-                    setPortalName(r === "Admin" ? "Administrator" : r);
-                    setPortalError("");
-                  }}
-                  className="w-full text-xs font-body font-bold rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+                  onChange={(e) => { setPortalRole(e.target.value); setPortalError(""); }}
+                  className="w-full text-xs font-body font-bold rounded-xl border border-slate-200 p-2.5 bg-slate-50/70"
                 >
-                  <option value="Admin">Admin (Full Oversight & Print)</option>
+                  <option value="Admin">Admin (Google / Password)</option>
+                  <option value="Technical Executive">Technical Executive</option>
+                  <option value="Site Engineer">Site Engineer</option>
+                  <option value="Customer">Customer</option>
                   <option value="QA/QC In-Charge">QA/QC In-Charge</option>
                   <option value="Project Manager">Project Manager</option>
-                  <option value="Technical Executive">Technical Executive</option>
                   <option value="Manager Technical">Manager Technical</option>
                   <option value="GM – HUG">GM – HUG</option>
                   <option value="VP – HUG">VP – HUG</option>
-                  <option value="Site Engineer">Site Engineer</option>
-                  <option value="Customer">Customer</option>
                 </select>
               </div>
 
               <div>
-                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
-                  User / Signer Name
-                </label>
+                <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">User Name / Email <span className="text-rose-500">*</span></label>
                 <input
+                  type="text"
                   value={portalName}
-                  onChange={(e) => setPortalName(e.target.value)}
-                  placeholder="Your name"
+                  onChange={(e) => { setPortalName(e.target.value); setPortalError(""); }}
+                  placeholder="e.g. Raj or admin@dac.com"
                   className="w-full text-xs font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
                 />
               </div>
 
               <div>
                 <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">
-                  6-Digit Role Password <span className="text-rose-500">*</span>
+                  Password (from SECOND SHEET) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="password"
-                  maxLength={6}
-                  inputMode="numeric"
                   value={portalPin}
                   onChange={(e) => { setPortalPin(e.target.value); setPortalError(""); }}
-                  placeholder="••••••"
+                  placeholder="e.g. TechExec@1001"
                   autoFocus
-                  autoComplete="new-password"
-                  className="w-full text-sm font-mono tracking-widest rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+                  className="w-full text-xs font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
                 />
-                {portalError && (
-                  <p className="font-body text-xs text-rose-600 mt-1.5 flex items-center gap-1">
-                    <AlertTriangle size={12} className="shrink-0" /> {portalError}
-                  </p>
-                )}
+                <p className="text-[10px] text-slate-400 mt-1">Verified against Column G in the SECOND SHEET (Users tab)</p>
               </div>
+
+              {portalError && (
+                <p className="font-body text-xs text-rose-600 mt-1.5 flex items-start gap-1 p-2 bg-rose-50 rounded-lg border border-rose-100">
+                  <AlertTriangle size={14} className="shrink-0 text-rose-500 mt-0.5" /> <span>{portalError}</span>
+                </p>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
@@ -1399,10 +1459,9 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <button
                   type="submit"
                   disabled={verifyingPortalPin}
-                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-600/20 disabled:bg-slate-300 flex items-center gap-1.5"
+                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-600/20 disabled:bg-slate-300 flex items-center gap-2"
                 >
-                  {verifyingPortalPin ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
-                  {verifyingPortalPin ? "Verifying..." : "Unlock & Enter Portal"}
+                  {verifyingPortalPin ? "Verifying..." : "Sign In"}
                 </button>
               </div>
             </form>
@@ -1419,7 +1478,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 function DashboardCards({ stats }) {
   const cards = [
     { label: "Passed Items", value: stats.passed, color: "#10b981", bg: "bg-emerald-50 text-emerald-600 border-emerald-100", icon: CheckCircle2, ring: "ring-emerald-500/20" },
-    { label: "Failed Defects", value: stats.failed, color: "#ef4444", bg: "bg-rose-50 text-rose-600 border-rose-100", icon: XCircle, ring: "ring-rose-500/20" },
+    { label: "Snags Identified", value: stats.failed, color: "#ef4444", bg: "bg-rose-50 text-rose-600 border-rose-100", icon: XCircle, ring: "ring-rose-500/20" },
     { label: "Pending Review", value: stats.total - stats.completed, color: "#64748b", bg: "bg-slate-50 text-slate-600 border-slate-100", icon: Clock, ring: "ring-slate-500/20" },
     { label: "Overall Progress", value: `${stats.pct}%`, color: "#2563eb", bg: "bg-blue-50 text-blue-600 border-blue-100", icon: ShieldCheck, ring: "ring-blue-500/20" },
   ];
@@ -1507,20 +1566,18 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     }
   }, [siteEngineerPasscode]);
 
-  // Autosave: debounce writes to the /api/draft route (backed by the Google Sheet).
+  // Autosave: debounce writes to the /api/draft route (backed by Google Sheets session).
   useEffect(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    const pin = activePasscode || siteEngineerPasscode;
-    if (!pin || !dataRef.current || !dataRef.current.inspectionId) return;
+    if (!dataRef.current || !dataRef.current.inspectionId) return;
 
     saveTimer.current = setTimeout(async () => {
       setSaveState("saving");
       try {
-        const payload = { ...dataRef.current, passcode: pin };
         const res = await fetch("/api/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(dataRef.current),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -1533,8 +1590,7 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
       }
     }, 1000);
     return () => clearTimeout(saveTimer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, activePasscode]);
+  }, [data]);
 
   const visibleItems = ITEMS.filter((item) => {
     if (query && !item.label.toLowerCase().includes(query.toLowerCase())) return false;
@@ -1548,18 +1604,13 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
 
   const canSubmit = !!(data.customerVerificationPhoto);
 
-  async function handleManualSave(customPin) {
-    const pin = customPin || activePasscode || siteEngineerPasscode;
-    if (!pin) {
-      setShowSubmitPinModal(true);
-      return;
-    }
+  async function handleManualSave() {
     setSaveState("saving");
     try {
       const res = await fetch("/api/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, passcode: pin }),
+        body: JSON.stringify(data),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1573,33 +1624,19 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     }
   }
 
-  async function handleSubmit(customPin) {
-    const pin = customPin || activePasscode || siteEngineerPasscode;
-    if (!pin || pin.length !== 6) {
-      setSubmitPinError("");
-      setShowSubmitPinModal(true);
-      return;
-    }
-
+  async function handleSubmit() {
+    if (submittingWithPin) return; // Prevent duplicate clicks
     setSubmittingWithPin(true);
     try {
       const res = await fetch("/api/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, passcode: pin }),
+        body: JSON.stringify(data),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (res.status === 401) {
-          setShowSubmitPinModal(true);
-          setSubmitPinError(body.error || "Invalid 6-digit password. Please re-enter.");
-          return;
-        }
         throw new Error(body.error || "Submit failed");
       }
-      setActivePasscode(pin);
-      setShowSubmitPinModal(false);
-      setSubmitPin("");
       updateField({ status: "submitted" });
       push("Inspection submitted successfully.", "success");
       onSubmitted();
@@ -1820,15 +1857,21 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
                   />
                 </div>
                 <div className="flex items-center gap-1 bg-slate-100/90 rounded-xl p-1 border border-slate-200/60">
-                  {["all", "pass", "fail", "na", "pending"].map((f) => (
+                  {[
+                    { key: "all", label: "All" },
+                    { key: "pass", label: "Pass" },
+                    { key: "fail", label: "Snag" },
+                    { key: "na", label: "N/A" },
+                    { key: "pending", label: "Pending" },
+                  ].map(({ key, label }) => (
                     <button
-                      key={f}
-                      onClick={() => setFilterStatus(f)}
+                      key={key}
+                      onClick={() => setFilterStatus(key)}
                       className={`text-xs font-body font-semibold px-3 py-1.5 rounded-lg capitalize transition-all ${
-                        filterStatus === f ? "bg-white shadow-xs text-blue-700 font-bold" : "text-slate-600 hover:text-slate-900"
+                        filterStatus === key ? "bg-white shadow-xs text-blue-700 font-bold" : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      {f}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -1939,20 +1982,44 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
           <div className="flex items-center gap-3">
             <button
               onClick={handleManualSave}
-              className="text-xs font-body font-semibold px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white text-slate-700 transition-colors"
+              disabled={submittingWithPin}
+              className="text-xs font-body font-semibold px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white text-slate-700 transition-colors disabled:opacity-50"
             >
               Save Draft
             </button>
             <button
               onClick={handleSubmit}
-              disabled={!canSubmit}
+              disabled={!canSubmit || submittingWithPin}
               className="text-sm font-body font-bold px-6 py-2.5 rounded-xl bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:shadow-none flex items-center gap-2 transition-all scale-[1.01] active:scale-[0.99]"
             >
-              <ShieldCheck size={18} /> Submit Inspection
+              {submittingWithPin ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" /> Submitting...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck size={18} /> Submit Inspection
+                </>
+              )}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Submitting Loading Modal Overlay */}
+      {submittingWithPin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm no-print">
+          <div className="bg-white rounded-3xl p-8 shadow-2xl flex flex-col items-center justify-center text-center max-w-sm border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+              <Loader2 size={36} className="animate-spin text-blue-600" />
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-lg text-slate-900">Submitting Inspection</h3>
+              <p className="font-body text-xs text-slate-500 mt-1">Writing data & syncing with Google Sheets. Please wait…</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Print / PDF Preview Modal */}
       {showPrintModal && (
