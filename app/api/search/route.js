@@ -85,7 +85,7 @@ export async function GET(request) {
 
     return NextResponse.json({ results: results.slice(0, 30) });
   } catch (error) {
-    console.error("[API/search] Error processing search query:", error);
+    console.error("[API/search] Error processing search query:", error?.message || "Unknown error");
     return NextResponse.json({ error: "Failed to execute search query" }, { status: 500 });
   }
 }

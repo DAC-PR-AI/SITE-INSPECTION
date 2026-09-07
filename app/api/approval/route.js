@@ -46,7 +46,7 @@ export async function GET(req) {
 
     return NextResponse.json({ inspections: filtered });
   } catch (e) {
-    console.error("[approval] GET error:", e);
+    console.error("[approval] GET error:", e?.message || "Unknown error");
     return NextResponse.json({ inspections: [] });
   }
 }
@@ -228,7 +228,7 @@ export async function POST(req) {
       inspection,
     });
   } catch (e) {
-    console.error("[approval] POST error:", e);
+    console.error("[approval] POST error:", e?.message || "Unknown error");
     return NextResponse.json({ error: "Failed to process approval" }, { status: 500 });
   }
 }

@@ -192,7 +192,7 @@ export async function POST(req) {
       { status: 400 }
     );
   } catch (e) {
-    console.error("[auth] POST error:", e);
+    console.error("[auth] POST error:", e?.message || "Unknown error");
     return NextResponse.json({ ok: false, error: "Authentication error." }, { status: 500 });
   }
 }
