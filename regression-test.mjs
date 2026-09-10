@@ -5,7 +5,7 @@
  * Run: node regression-test.mjs
  */
 
-const BASE = "http://localhost:3000";
+const BASE = process.env.TEST_URL || "http://localhost:3000";
 
 let passed = 0, failed = 0, warned = 0;
 const results = [];
