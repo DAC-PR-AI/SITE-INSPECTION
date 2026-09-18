@@ -9,7 +9,7 @@ import {
   Building2, Hash, Calendar, AlertCircle
 } from "lucide-react";
 import WorkflowStepper from "./WorkflowStepper";
-import JointInspectionPrintDoc, { CHECKLIST_ROWS, CHECKLIST_COLS } from "./JointInspectionPrintDoc";
+import JointInspectionPrintDoc, { CHECKLIST_ROWS, CHECKLIST_COLS, resolveSignature } from "./JointInspectionPrintDoc";
 import { getInspectionWorkflowInfo } from "../lib/workflow";
 
 const ROLES = [
@@ -1581,9 +1581,8 @@ function SignaturesOverviewSection({ signatures }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {ROLES_LIST.map((r) => {
-          const sig = signatures[r.key];
-          const dataUrl = typeof sig === "string" ? (sig.startsWith("data:") ? sig : null) : (sig?.dataUrl || null);
-          const isSigned = !!sig && (sig === "SIGNED" || sig.status === "signed" || !!dataUrl || !!sig.signer);
+          const sigInfo = resolveSignature(signatures, r.key);
+          const isSigned = !!sigInfo;
           return (
             <div
               key={r.key}
@@ -1592,8 +1591,8 @@ function SignaturesOverviewSection({ signatures }) {
               }`}
             >
               <div className="w-full flex-1 flex items-center justify-center">
-                {dataUrl ? (
-                  <img src={dataUrl} alt={r.label} className="max-h-12 object-contain" />
+                {sigInfo?.type === "image" && sigInfo.src ? (
+                  <img src={sigInfo.src} alt="" className="max-h-12 object-contain" />
                 ) : isSigned ? (
                   <span className="font-body text-xs font-bold text-emerald-800">✓ Signed</span>
                 ) : (

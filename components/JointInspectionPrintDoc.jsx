@@ -44,6 +44,79 @@ export const SIGNATURE_ROWS = [
   ],
 ];
 
+export function resolveSignature(signatures, colKey) {
+  if (!signatures || typeof signatures !== "object") return null;
+
+  const candidateKeys = [colKey];
+  const aliasMap = {
+    customer: ["Customer", "CUSTOMER", "customerSign", "customerSignature", "cust"],
+    siteEngineer: ["Site Engineer", "SITE_ENGINEER", "site_engineer", "SiteEngineer", "siteEng", "siteEngineerSign"],
+    qaqc: ["QA/QC In-Charge", "QA/QC", "QA_QC", "QAQC", "qaqcSign", "qaqc_in_charge", "qa_qc_in_charge"],
+    projectManager: ["Project Manager", "PROJECT_MANAGER", "project_manager", "ProjectManager", "pm", "pmSign"],
+    technicalExecutive: ["Technical Executive", "TECHNICAL_EXECUTIVE", "technical_executive", "TechnicalExecutive", "techExec", "techExecSign"],
+    managerTechnical: ["Manager Technical", "Manager – Technical", "Manager - Technical", "MANAGER_TECHNICAL", "manager_technical", "mantech", "manTechSign"],
+    gmHug: ["GM – HUG", "GM - HUG", "GM -HUG", "GM_HUG", "gm_hug", "gm", "gmHugSign", "GM – HUG (Mr. Vijayachandar)"],
+    vpHug: ["VP – HUG", "VP - HUG", "VP-HUG", "VP_HUG", "vp_hug", "vp", "vpHugSign", "VP – HUG (Mrs. Sony Dhiraj)"],
+  };
+
+  if (aliasMap[colKey]) {
+    candidateKeys.push(...aliasMap[colKey]);
+  }
+
+  let rawSig = null;
+  for (const k of candidateKeys) {
+    if (signatures[k] !== undefined && signatures[k] !== null && signatures[k] !== "") {
+      rawSig = signatures[k];
+      break;
+    }
+  }
+
+  if (!rawSig) {
+    const cleanTarget = colKey.replace(/[\s\-_–]/g, "").toLowerCase();
+    for (const [k, val] of Object.entries(signatures)) {
+      if (k.replace(/[\s\-_–]/g, "").toLowerCase() === cleanTarget && val) {
+        rawSig = val;
+        break;
+      }
+    }
+  }
+
+  if (!rawSig) return null;
+
+  if (typeof rawSig === "string") {
+    const trimmed = rawSig.trim();
+    if (trimmed.startsWith("data:image/") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      return { type: "image", src: trimmed };
+    }
+    if (trimmed === "SIGNED" || trimmed.toLowerCase() === "signed") {
+      return { type: "badge", label: "✓ Digitally Signed" };
+    }
+    if (trimmed.length > 50 && !trimmed.startsWith("data:")) {
+      return { type: "image", src: `data:image/png;base64,${trimmed}` };
+    }
+  }
+
+  if (typeof rawSig === "object" && rawSig !== null) {
+    const candidateUrls = [rawSig.dataUrl, rawSig.signature, rawSig.sigData, rawSig.url, rawSig.image];
+    for (const u of candidateUrls) {
+      if (typeof u === "string" && u.trim().length > 0) {
+        const tr = u.trim();
+        if (tr.startsWith("data:image/") || tr.startsWith("http://") || tr.startsWith("https://")) {
+          return { type: "image", src: tr };
+        }
+        if (tr.length > 50 && !tr.startsWith("data:")) {
+          return { type: "image", src: `data:image/png;base64,${tr}` };
+        }
+      }
+    }
+    if (rawSig.status === "signed" || rawSig.signer || rawSig.userId) {
+      return { type: "badge", label: "✓ Digitally Signed", signer: rawSig.signer };
+    }
+  }
+
+  return null;
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return "";
   try {
@@ -267,7 +340,7 @@ export default function JointInspectionPrintDoc({ data, inspection }) {
             }`}
           >
             {row.map((col, cIdx) => {
-              const sigDataUrl = signatures[col.key];
+              const sigInfo = resolveSignature(signatures, col.key);
               return (
                 <div
                   key={col.key}
@@ -277,14 +350,14 @@ export default function JointInspectionPrintDoc({ data, inspection }) {
                 >
                   {/* Signature graphic or blank space */}
                   <div className="flex-1 w-full flex items-center justify-center min-h-[34px] sm:min-h-[42px]">
-                    {sigDataUrl && sigDataUrl !== "SIGNED" ? (
+                    {sigInfo?.type === "image" && sigInfo.src ? (
                       <img
-                        src={sigDataUrl}
-                        alt={`${col.label} Signature`}
+                        src={sigInfo.src}
+                        alt=""
                         className="max-h-[32px] sm:max-h-[40px] max-w-[92%] object-contain"
                       />
-                    ) : sigDataUrl === "SIGNED" ? (
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-300">
+                    ) : sigInfo?.type === "badge" ? (
+                      <span className="text-[9px] sm:text-[9.5px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-300">
                         ✓ Digitally Signed
                       </span>
                     ) : (
