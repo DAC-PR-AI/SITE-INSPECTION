@@ -18,10 +18,24 @@ export default class ErrorBoundary extends React.Component {
   }
 
   handleReset = () => {
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+      }
+    } catch {}
     this.setState({ hasError: false, error: null });
     if (typeof window !== "undefined") {
       window.location.href = "/";
     }
+  };
+
+  handleTryAgain = () => {
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+      }
+    } catch {}
+    this.setState({ hasError: false, error: null });
   };
 
   render() {
@@ -34,13 +48,19 @@ export default class ErrorBoundary extends React.Component {
             </div>
 
             <h2 className="text-xl font-bold text-white mb-2">Something unexpected happened</h2>
-            <p className="text-sm text-slate-400 mb-6">
+            <p className="text-sm text-slate-400 mb-4">
               The application recovered safely. Any data already saved remains secure.
             </p>
 
+            {this.state.error?.message && (
+              <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-700 text-left font-mono text-[11px] text-rose-300 mb-6 max-h-28 overflow-y-auto break-words">
+                {this.state.error.message}
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
-                onClick={() => this.setState({ hasError: false, error: null })}
+                onClick={this.handleTryAgain}
                 className="flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-700/50 hover:bg-slate-700 text-slate-200 text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <RotateCcw size={16} /> Try Again

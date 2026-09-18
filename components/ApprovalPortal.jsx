@@ -241,32 +241,42 @@ export default function ApprovalPortal({
 
   // Enhanced inspection mapping with calculated workflow info
   const enhancedInspections = useMemo(() => {
-    return inspections.map((i) => ({
+    return (inspections || []).filter(Boolean).map((i) => ({
       ...i,
-      _wf: getInspectionWorkflowInfo(i, selectedRole),
+      _wf: getInspectionWorkflowInfo(i, selectedRole) || {
+        isPendingOnYou: false,
+        isCompleted: false,
+        isRejected: false,
+        currentPendingRole: "None",
+        displayStatus: "Draft",
+        actionType: "view",
+      },
     }));
   }, [inspections, selectedRole]);
 
   // Count categories
   const pendingOnYouCount = useMemo(() => {
-    return enhancedInspections.filter((i) => i._wf.isPendingOnYou).length;
+    return enhancedInspections.filter((i) => i._wf?.isPendingOnYou).length;
   }, [enhancedInspections]);
 
   const waitingCount = useMemo(() => {
-    return enhancedInspections.filter((i) => !i._wf.isPendingOnYou && !i._wf.isCompleted && !i._wf.isRejected).length;
+    return enhancedInspections.filter((i) => !i._wf?.isPendingOnYou && !i._wf?.isCompleted && !i._wf?.isRejected).length;
   }, [enhancedInspections]);
 
   const completedCount = useMemo(() => {
-    return enhancedInspections.filter((i) => i._wf.isCompleted).length;
+    return enhancedInspections.filter((i) => i._wf?.isCompleted).length;
   }, [enhancedInspections]);
 
   const rejectedCount = useMemo(() => {
-    return enhancedInspections.filter((i) => i._wf.isRejected).length;
+    return enhancedInspections.filter((i) => i._wf?.isRejected).length;
   }, [enhancedInspections]);
 
   // Filtered & Sorted Inspections
   const filteredInspections = useMemo(() => {
     const list = enhancedInspections.filter((i) => {
+      if (!i) return false;
+      const wf = i._wf || { isPendingOnYou: false, isCompleted: false, isRejected: false, currentPendingRole: "" };
+
       // Search Query filter
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -280,18 +290,18 @@ export default function ApprovalPortal({
       }
 
       // Quick Tab Filter
-      if (filterTab === "pending_on_you" && !i._wf.isPendingOnYou) return false;
-      if (filterTab === "waiting" && (i._wf.isPendingOnYou || i._wf.isCompleted || i._wf.isRejected)) return false;
-      if (filterTab === "completed" && !i._wf.isCompleted) return false;
-      if (filterTab === "rejected" && !i._wf.isRejected) return false;
+      if (filterTab === "pending_on_you" && !wf.isPendingOnYou) return false;
+      if (filterTab === "waiting" && (wf.isPendingOnYou || wf.isCompleted || wf.isRejected)) return false;
+      if (filterTab === "completed" && !wf.isCompleted) return false;
+      if (filterTab === "rejected" && !wf.isRejected) return false;
 
       // Admin Dropdown Filters
       if (isAdmin) {
         if (filterProject !== "ALL" && i.projectName !== filterProject) return false;
-        if (filterStatusDropdown === "COMPLETED" && !i._wf.isCompleted) return false;
-        if (filterStatusDropdown === "REJECTED" && !i._wf.isRejected) return false;
-        if (filterStatusDropdown === "IN_PROGRESS" && (i._wf.isCompleted || i._wf.isRejected)) return false;
-        if (filterPendingRole !== "ALL" && !i._wf.currentPendingRole.toLowerCase().includes(filterPendingRole.toLowerCase())) return false;
+        if (filterStatusDropdown === "COMPLETED" && !wf.isCompleted) return false;
+        if (filterStatusDropdown === "REJECTED" && !wf.isRejected) return false;
+        if (filterStatusDropdown === "IN_PROGRESS" && (wf.isCompleted || wf.isRejected)) return false;
+        if (filterPendingRole !== "ALL" && !(wf.currentPendingRole || "").toLowerCase().includes(filterPendingRole.toLowerCase())) return false;
       }
 
       return true;
@@ -302,8 +312,10 @@ export default function ApprovalPortal({
     // 2. Newest inspections (by updatedAt / createdAt / inspectionDate) are displayed first.
     return list.sort((a, b) => {
       if (filterTab === "all") {
-        if (a._wf.isPendingOnYou && !b._wf.isPendingOnYou) return -1;
-        if (!a._wf.isPendingOnYou && b._wf.isPendingOnYou) return 1;
+        const aPending = a._wf?.isPendingOnYou;
+        const bPending = b._wf?.isPendingOnYou;
+        if (aPending && !bPending) return -1;
+        if (!aPending && bPending) return 1;
       }
       const timeA = new Date(a.updatedAt || a.createdAt || a.inspectionDate || 0).getTime() || 0;
       const timeB = new Date(b.updatedAt || b.createdAt || b.inspectionDate || 0).getTime() || 0;
