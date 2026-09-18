@@ -58,7 +58,7 @@ export async function POST(req) {
     } catch {
       return NextResponse.json({ ok: false, error: "Invalid JSON request body." }, { status: 400 });
     }
-    const { credential, userName, userNumber, password, email, fieldName, fieldRole } = body || {};
+    const { credential, userName, userNumber, password, email, fieldName, fieldRole, role, pin, passcode } = body || {};
 
     // ── PATH 1: Password-based authentication (Sheet column G) ──────────────
     if (password && (userName || email || userNumber)) {
@@ -92,7 +92,54 @@ export async function POST(req) {
       return res;
     }
 
-    // ── PATH 2: Google OAuth Admin login ──────────────────────────────────
+    // ── PATH 2: Role PIN / Passcode Authentication (Field & Role Fallback) ──
+    const effectiveRole = role || fieldRole;
+    const effectivePin = pin || passcode;
+    if (effectiveRole && effectivePin) {
+      const roleConfig = getRoleConfig(effectiveRole);
+      if (!roleConfig) {
+        return NextResponse.json({ ok: false, error: `Unknown role: "${effectiveRole}".` }, { status: 400 });
+      }
+
+      const { limited, resetInMs } = checkRateLimit(ip, roleConfig.id);
+      if (limited) {
+        const minutes = Math.ceil(resetInMs / 60000);
+        return NextResponse.json(
+          { ok: false, error: `Too many login attempts. Try again in ${minutes} minute(s).` },
+          { status: 429 }
+        );
+      }
+
+      const isPinValid = verifyRolePassword(effectiveRole, String(effectivePin).trim());
+      if (!isPinValid) {
+        recordFailedAttempt(ip, roleConfig.id);
+        return NextResponse.json({ ok: false, error: "Incorrect 6-digit passcode." }, { status: 401 });
+      }
+
+      clearRateLimit(ip, roleConfig.id);
+
+      const user = {
+        user_id: `ROLE-${roleConfig.id}`,
+        name: String(userName || fieldName || roleConfig.label).trim(),
+        number: "",
+        email: "",
+        role: roleConfig.label,
+        status: "Active",
+      };
+
+      const sessionCookie = createSessionCookie(user);
+      const res = NextResponse.json({
+        ok: true,
+        user,
+        role: roleConfig.label,
+        roleId: roleConfig.id,
+        canSign: roleConfig.canSign,
+      });
+      res.headers.set("Set-Cookie", sessionCookie);
+      return res;
+    }
+
+    // ── PATH 3: Google OAuth Admin login ──────────────────────────────────
     if (credential) {
       const { limited, resetInMs } = checkRateLimit(ip, "GOOGLE_AUTH");
       if (limited) {
@@ -123,7 +170,7 @@ export async function POST(req) {
       return res;
     }
 
-    // ── PATH 3: Field Staff free-text login ────────────────────────────────
+    // ── PATH 4: Field Staff free-text login ────────────────────────────────
     if (fieldName && fieldRole) {
       if (!isFieldStaffRole(fieldRole)) {
         return NextResponse.json(
@@ -149,7 +196,7 @@ export async function POST(req) {
       return res;
     }
 
-    // ── PATH 4: Number-based login ────────────────────────────────────────
+    // ── PATH 5: Number-based login ────────────────────────────────────────
     if (userName && userNumber) {
       const { limited, resetInMs } = checkRateLimit(ip, "USER_NUMBER_AUTH");
       if (limited) {
@@ -187,7 +234,7 @@ export async function POST(req) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Please provide { userName, password } to authenticate.",
+        error: "Please provide { userName, password } or { role, pin } to authenticate.",
       },
       { status: 400 }
     );

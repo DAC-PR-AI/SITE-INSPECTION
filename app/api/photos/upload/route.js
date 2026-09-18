@@ -16,8 +16,8 @@ export async function POST(request) {
   try {
     const ip = getClientIp(request);
 
-    // Rate limit check: max 20 uploads per IP per 15 min window
-    const { limited, resetInMs } = checkRateLimit(ip, "PHOTO_UPLOAD", 20);
+    // Rate limit check: max 500 uploads per IP per 15 min window (supports extensive photo documentation)
+    const { limited, resetInMs } = checkRateLimit(ip, "PHOTO_UPLOAD", 500);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
@@ -26,17 +26,16 @@ export async function POST(request) {
       );
     }
 
-    // Always record attempt count for rate limit tracking
-    recordFailedAttempt(ip, "PHOTO_UPLOAD");
-
     let data;
     try {
       data = await request.json();
     } catch {
+      recordFailedAttempt(ip, "PHOTO_UPLOAD");
       return NextResponse.json({ error: "Invalid JSON request payload." }, { status: 400 });
     }
 
     if (!data || !data.dataUrl) {
+      recordFailedAttempt(ip, "PHOTO_UPLOAD");
       return NextResponse.json({ error: "Missing required photo dataUrl parameter." }, { status: 400 });
     }
 

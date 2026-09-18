@@ -60,7 +60,7 @@ export async function POST(req) {
     } catch {
       return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
     }
-    const { inspectionId, action, comments = "", signature = "" } = body || {};
+    const { inspectionId, action, comments = "", signature = "", targetStatus, role: bodyRole, userName: bodyUserName, passcode, pin } = body || {};
 
     if (!inspectionId || !action) {
       return NextResponse.json(
@@ -77,8 +77,25 @@ export async function POST(req) {
       return NextResponse.json({ error: "Invalid signature format." }, { status: 400 });
     }
 
-    // ── Server-side session authentication ───────────────────────────────
-    const sessionUser = getSessionUser(req);
+    // ── Authentication (Session or Role Passcode fallback) ───────────────
+    let sessionUser = getSessionUser(req);
+    const effectivePasscode = passcode || pin;
+
+    if (!sessionUser && bodyRole && effectivePasscode) {
+      const isPinValid = verifyRolePassword(bodyRole, String(effectivePasscode).trim());
+      if (isPinValid) {
+        const rc = getRoleConfig(bodyRole);
+        sessionUser = {
+          user_id: `ROLE-${rc?.id || "USER"}`,
+          name: bodyUserName || bodyRole,
+          number: "",
+          email: "",
+          role: rc?.label || bodyRole,
+          status: "Active",
+        };
+      }
+    }
+
     if (!sessionUser) {
       return NextResponse.json(
         { error: "Authentication required. Please log in to the portal." },
@@ -87,25 +104,12 @@ export async function POST(req) {
     }
 
     const role = sessionUser.role;
-    const userName = sessionUser.name || role;
+    const userName = bodyUserName || sessionUser.name || role;
     const roleConfig = getRoleConfig(role);
 
     if (!roleConfig) {
       return NextResponse.json({ error: "Your role is not recognised. Please contact the administrator." }, { status: 403 });
     }
-
-    if (roleConfig.id === "ADMIN") {
-      return NextResponse.json({ error: "Admin role cannot sign individual inspection boxes." }, { status: 403 });
-    }
-
-    // Rate limit check (keyed to IP + role)
-    const { limited, resetInMs } = checkRateLimit(ip, roleConfig.id);
-    if (limited) {
-      const minutes = Math.ceil(resetInMs / 60000);
-      return NextResponse.json({ error: `Too many attempts. Try again in ${minutes} minute(s).` }, { status: 429 });
-    }
-
-    clearRateLimit(ip, roleConfig.id);
 
     const inspection = await getInspection(inspectionId);
     if (!inspection) {
@@ -113,6 +117,51 @@ export async function POST(req) {
     }
 
     const currentStatus = inspection.workflowStatus || WORKFLOW_STATES.DRAFT;
+
+    // ── Handle Admin Override / Reconciliation Action ─────────────────────
+    const isAdminOverride =
+      roleConfig.id === "ADMIN" &&
+      (action === "admin_override" ||
+        action === "override" ||
+        targetStatus ||
+        comments.includes("[ADMIN OVERRIDE") ||
+        comments.includes("Reconciliation"));
+
+    if (roleConfig.id === "ADMIN" && !isAdminOverride) {
+      return NextResponse.json({ error: "Admin role cannot sign individual inspection boxes." }, { status: 403 });
+    }
+
+    if (isAdminOverride) {
+      const overrideTarget = targetStatus || (comments.includes("to ") ? comments.split("to ")[1].split("]")[0].trim() : currentStatus);
+      const auditRecord = createAuditRecord({
+        inspectionId,
+        projectName: inspection.projectName || "",
+        unitNumber: inspection.unitNumber || "",
+        inspectionType: inspection.inspectionType || "INTERIOR JOINT INSPECTION",
+        userId: sessionUser.user_id || "ADMIN",
+        userNumber: sessionUser.number || "",
+        role: "Admin",
+        userName,
+        action: "ADMIN_OVERRIDE",
+        status: overrideTarget,
+        comments: comments || "Administrative workflow override applied.",
+        signature: null,
+      });
+
+      if (!inspection.approvalHistory) inspection.approvalHistory = [];
+      inspection.approvalHistory.push(auditRecord);
+
+      inspection.workflowStatus = overrideTarget;
+      inspection.latestAuditRecord = auditRecord;
+
+      await upsertInspection(inspection, { submitting: overrideTarget !== WORKFLOW_STATES.DRAFT });
+
+      return NextResponse.json({
+        ok: true,
+        workflowStatus: overrideTarget,
+        inspection,
+      });
+    }
 
     if (currentStatus === WORKFLOW_STATES.COMPLETED) {
       return NextResponse.json({ error: "This inspection has already been fully approved and completed." }, { status: 400 });

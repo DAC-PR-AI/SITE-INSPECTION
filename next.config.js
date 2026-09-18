@@ -32,7 +32,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com data:",
               "img-src 'self' data: blob: https://drive.google.com https://*.googleusercontent.com",
-              "connect-src 'self' https://*.vercel.app",
+              "connect-src 'self' https://*.vercel.app https://oauth2.googleapis.com https://*.googleapis.com https://*.google.com",
               "frame-ancestors 'none'",
               ...(isDev ? [] : ["upgrade-insecure-requests"]),
             ].join("; "),
