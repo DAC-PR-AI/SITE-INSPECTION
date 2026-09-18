@@ -32,10 +32,6 @@ yarn-error.log*
 *.pem
 Thumbs.db
 
-# scratch / test scripts
+# scratch / temporary files
 /scratch/
-api-test.mjs
 orig_crane.txt
-qa-full-audit.mjs
-test-*.mjs
-test-*.js
