@@ -9,7 +9,7 @@ import {
   Building2, Hash, Calendar, AlertCircle
 } from "lucide-react";
 import WorkflowStepper from "./WorkflowStepper";
-import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
+import JointInspectionPrintDoc, { CHECKLIST_ROWS, CHECKLIST_COLS } from "./JointInspectionPrintDoc";
 import { getInspectionWorkflowInfo } from "../lib/workflow";
 
 const ROLES = [
@@ -1008,45 +1008,540 @@ export default function ApprovalPortal({
 }
 
 /**
- * Detailed Checklist Viewer
+ * Detailed Checklist Viewer — Official Print Format & Snags Inspector
  */
 function DetailedChecklist({ inspection }) {
-  const cells = inspection.cells || {};
-  const entries = Object.entries(cells).filter(([_, c]) => c && c.status);
+  const [viewMode, setViewMode] = useState("print_grid"); // "print_grid" | "snags" | "full_paper"
+  const [selectedSnagModal, setSelectedSnagModal] = useState(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
+
+  const cells = inspection?.cells || {};
+
+  const getCellData = (rowId, colKey) => {
+    return cells[`${rowId}__${colKey}`] || null;
+  };
+
+  const getCellMark = (rowId, colKey) => {
+    const cell = getCellData(rowId, colKey);
+    if (!cell || !cell.status) return "";
+    const status = String(cell.status).toLowerCase();
+    if (status === "pass" || status === "passed" || status === "ok") return "✓";
+    if (status === "fail" || status === "failed") return "✗";
+    if (status === "na" || status === "n/a") return "—";
+    return "";
+  };
+
+  // Compile statistics and snag roster
+  const { passCount, failCount, naCount, totalEvaluated, snagsList } = useMemo(() => {
+    let p = 0, f = 0, na = 0, total = 0;
+    const snags = [];
+
+    CHECKLIST_ROWS.forEach((row) => {
+      CHECKLIST_COLS.forEach((col) => {
+        const cell = cells[`${row.id}__${col.key}`];
+        if (cell && cell.status) {
+          total++;
+          const st = String(cell.status).toLowerCase();
+          if (st === "pass" || st === "passed" || st === "ok") p++;
+          else if (st === "fail" || st === "failed") {
+            f++;
+            snags.push({
+              key: `${row.id}__${col.key}`,
+              rowId: row.id,
+              rowLabel: row.label,
+              colKey: col.key,
+              colLabel: col.label.replace(/\n/g, " "),
+              cell,
+            });
+          } else if (st === "na" || st === "n/a") na++;
+        }
+      });
+    });
+
+    return { passCount: p, failCount: f, naCount: na, totalEvaluated: total, snagsList: snags };
+  }, [cells]);
+
+  const formattedProjectName = (inspection?.projectName || "").replace(/^DAC\s+/i, "").toUpperCase();
 
   return (
-    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
-      <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 mb-4 flex items-center gap-2">
-        <CheckSquare size={18} className="text-blue-600" /> Evaluated Checklist Particulars ({entries.length} recorded)
-      </h3>
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+      {/* Header & View Switcher */}
+      <div className="flex items-center justify-between gap-4 flex-wrap pb-4 border-b border-slate-100">
+        <div>
+          <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
+            <CheckSquare size={18} className="text-blue-600" /> Joint Inspection Checklist (Print Format)
+          </h3>
+          <p className="font-body text-xs text-slate-500 mt-0.5">
+            Standard 11-point inspection matrix matching physical handover print format
+          </p>
+        </div>
 
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 max-h-96 overflow-y-auto space-y-2">
-        {entries.length === 0 ? (
-          <p className="font-body text-xs text-slate-500 italic">No checklist items recorded yet.</p>
-        ) : (
-          entries.map(([key, cell]) => (
-            <div key={key} className="p-3.5 rounded-xl bg-white border border-slate-200/80 flex items-center justify-between text-xs flex-wrap gap-2">
-              <div>
-                <span className="font-mono text-slate-700 font-bold">{key.replace("__", " · Area: ")}</span>
-                {cell.remarks && <p className="font-body text-slate-600 italic mt-0.5">Defect note: "{cell.remarks}"</p>}
-                {cell.priority && <span className="font-mono text-[10px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 mt-1 inline-block">Priority: {cell.priority}</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`font-bold px-2.5 py-1 rounded-full uppercase text-[10px] ${
-                  cell.status === "pass" ? "bg-emerald-100 text-emerald-800" : cell.status === "fail" ? "bg-rose-100 text-rose-800" : "bg-slate-200 text-slate-700"
-                }`}>
-                  {cell.status === "fail" ? "SNAG" : cell.status}
-                </span>
-                {cell.photos && cell.photos.length > 0 && (
-                  <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    📷 {cell.photos.length} Photo{cell.photos.length > 1 ? "s" : ""}
-                  </span>
-                )}
+        {/* View Mode Tabs */}
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-body">
+          <button
+            onClick={() => setViewMode("print_grid")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              viewMode === "print_grid"
+                ? "bg-white text-blue-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            📋 Official Grid Form
+          </button>
+          <button
+            onClick={() => setViewMode("snags")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 ${
+              viewMode === "snags"
+                ? "bg-white text-rose-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span>⚠️ Defect Snags</span>
+            {failCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                {failCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setViewMode("full_paper")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              viewMode === "full_paper"
+                ? "bg-white text-purple-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            📄 Full Sheet Paper
+          </button>
+        </div>
+      </div>
+
+      {/* Metrics Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500">Evaluated Points</p>
+            <p className="text-base font-bold font-mono text-slate-800">{totalEvaluated}</p>
+          </div>
+          <CheckSquare size={16} className="text-slate-400" />
+        </div>
+        <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/70 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-emerald-800">Passed (✓)</p>
+            <p className="text-base font-bold font-mono text-emerald-700">{passCount}</p>
+          </div>
+          <CheckCircle2 size={16} className="text-emerald-600" />
+        </div>
+        <div className={`p-3 rounded-xl border flex items-center justify-between ${
+          failCount > 0 ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200/70"
+        }`}>
+          <div>
+            <p className={`text-[11px] font-bold ${failCount > 0 ? "text-rose-800" : "text-slate-500"}`}>
+              Defects / Snags (✗)
+            </p>
+            <p className={`text-base font-bold font-mono ${failCount > 0 ? "text-rose-600" : "text-slate-400"}`}>
+              {failCount}
+            </p>
+          </div>
+          <AlertTriangle size={16} className={failCount > 0 ? "text-rose-500" : "text-slate-400"} />
+        </div>
+        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500">Not Applicable (—)</p>
+            <p className="text-base font-bold font-mono text-slate-600">{naCount}</p>
+          </div>
+          <span className="font-mono font-bold text-slate-400 text-sm">—</span>
+        </div>
+      </div>
+
+      {/* VIEW MODE 1: OFFICIAL PRINT GRID */}
+      {viewMode === "print_grid" && (
+        <div className="space-y-4">
+          <div className="border-2 border-slate-800 rounded-2xl overflow-hidden bg-white shadow-sm">
+            {/* Header Document Info Banner */}
+            <div className="bg-slate-900 text-white p-3 sm:p-4 text-center border-b-2 border-slate-800">
+              <h4 className="font-display font-extrabold text-xs sm:text-sm tracking-wide uppercase">
+                JOINT INSPECTION CHECKLIST FOR KEY HANDOVER ({inspection?.inspectionType || "INTERIOR JOINT INSPECTION"})
+              </h4>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-slate-300 mt-2 px-2 flex-wrap gap-2">
+                <span><b>PROJECT:</b> DAC {formattedProjectName || "—"}</span>
+                <span><b>UNIT NO:</b> {inspection?.unitNumber || "—"}</span>
+                <span><b>CUSTOMER:</b> {inspection?.customerName || "—"}</span>
+                <span><b>DATE:</b> {inspection?.inspectionDate || new Date().toLocaleDateString("en-GB")}</span>
               </div>
             </div>
-          ))
-        )}
-      </div>
+
+            {/* Interactive Grid Table */}
+            <div className="overflow-x-auto relative">
+              {/* Subtle background watermark */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-5 overflow-hidden">
+                <span className="font-black text-[120px] tracking-widest text-blue-900">DAC</span>
+              </div>
+
+              <table className="w-full border-collapse text-[10px] sm:text-[11px] font-sans relative z-10">
+                <thead>
+                  <tr className="bg-slate-100/90 border-b-2 border-slate-800 text-slate-900 font-bold uppercase">
+                    <th className="border-r border-slate-800 p-2 text-center w-[36px]">S.NO</th>
+                    <th className="border-r border-slate-800 p-2 text-left min-w-[160px] sm:min-w-[180px]">PARTICULARS</th>
+                    {CHECKLIST_COLS.map((col) => (
+                      <th
+                        key={col.key}
+                        className="border-r border-slate-800 last:border-r-0 p-1 text-center text-[9px] sm:text-[10px] leading-tight whitespace-pre-line"
+                        style={{ width: "6.5%" }}
+                      >
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {CHECKLIST_ROWS.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-400/80 hover:bg-blue-50/30 transition-colors">
+                      <td className="border-r border-slate-800 p-2 text-center font-bold text-slate-700 bg-slate-50/50">
+                        {row.id}
+                      </td>
+                      <td className="border-r border-slate-800 p-2 font-bold text-slate-800 text-[10px] sm:text-[11px] leading-snug">
+                        {row.label}
+                      </td>
+                      {CHECKLIST_COLS.map((col) => {
+                        const cell = getCellData(row.id, col.key);
+                        const mark = getCellMark(row.id, col.key);
+                        const isPass = mark === "✓";
+                        const isFail = mark === "✗";
+                        const hasDetails = cell && (cell.remarks || cell.priority || (cell.photos && cell.photos.length > 0));
+
+                        return (
+                          <td
+                            key={col.key}
+                            onClick={() => {
+                              if (cell) {
+                                setSelectedSnagModal({
+                                  rowId: row.id,
+                                  rowLabel: row.label,
+                                  colKey: col.key,
+                                  colLabel: col.label.replace(/\n/g, " "),
+                                  cell,
+                                });
+                              }
+                            }}
+                            className={`border-r border-slate-800 last:border-r-0 p-1 text-center font-bold text-[13px] sm:text-[14px] leading-none transition-all ${
+                              cell ? "cursor-pointer hover:scale-110" : ""
+                            } ${
+                              isPass
+                                ? "text-emerald-700 bg-emerald-50/30"
+                                : isFail
+                                ? "text-rose-600 bg-rose-50/80 font-black"
+                                : mark === "—"
+                                ? "text-slate-400"
+                                : "text-slate-300"
+                            }`}
+                            title={hasDetails ? `Defect: ${cell.remarks || "Snag recorded"} (Click to view)` : mark}
+                          >
+                            <div className="flex flex-col items-center justify-center">
+                              <span>{mark || ""}</span>
+                              {isFail && hasDetails && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-600 mt-0.5 animate-pulse" />
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+
+                  {/* Row 12: General Remarks */}
+                  <tr className="bg-slate-50/80 border-t-2 border-slate-800">
+                    <td className="border-r border-slate-800 p-2 text-center font-bold text-slate-700">12</td>
+                    <td className="border-r border-slate-800 p-2 font-bold text-slate-800 text-[10px] sm:text-[11px]">
+                      REMARKS IF ANY
+                    </td>
+                    <td
+                      colSpan={CHECKLIST_COLS.length}
+                      className="p-2 text-left text-[11px] font-medium text-slate-800"
+                    >
+                      {inspection?.generalRemarks ? (
+                        <span className="font-semibold text-slate-900 bg-yellow-50 px-2 py-1 rounded border border-yellow-200 inline-block w-full">
+                          {inspection.generalRemarks}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">Nil</span>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 italic text-right">
+            💡 Tip: Click any cell mark (especially ✗ snags) to inspect defect observations, priority, and attached photos.
+          </p>
+
+          {/* If there are snags, show a compact gallery directly underneath the grid */}
+          {snagsList.length > 0 && (
+            <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-display font-bold text-sm text-rose-900 flex items-center gap-1.5">
+                  <AlertTriangle size={15} className="text-rose-600" /> Recorded Snags & Defect Observations ({snagsList.length})
+                </h4>
+                <button
+                  onClick={() => setViewMode("snags")}
+                  className="text-xs font-bold text-rose-700 hover:underline flex items-center gap-1"
+                >
+                  View All Snag Cards <ChevronRight size={14} />
+                </button>
+              </div>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {snagsList.map((snag) => (
+                  <div
+                    key={snag.key}
+                    onClick={() => setSelectedSnagModal(snag)}
+                    className="p-3 bg-white rounded-xl border border-rose-200/80 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-1 mb-1.5">
+                        <span className="font-mono text-[10px] font-bold text-rose-700 bg-rose-100/80 px-2 py-0.5 rounded">
+                          {snag.colLabel}
+                        </span>
+                        {snag.cell.priority && (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            snag.cell.priority === "HIGH" ? "bg-rose-600 text-white" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {snag.cell.priority}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-body font-bold text-xs text-slate-900 leading-tight">
+                        {snag.rowLabel}
+                      </p>
+                      {snag.cell.remarks && (
+                        <p className="font-body text-xs text-slate-600 mt-1 italic line-clamp-2">
+                          "{snag.cell.remarks}"
+                        </p>
+                      )}
+                    </div>
+
+                    {snag.cell.photos && snag.cell.photos.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 shrink-0">
+                          <img
+                            src={snag.cell.photos[0]}
+                            alt="Defect"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <span className="text-[10px] font-bold text-blue-600">
+                          📷 {snag.cell.photos.length} Photo{snag.cell.photos.length > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW MODE 2: SNAGS & DEFECT ROSTER */}
+      {viewMode === "snags" && (
+        <div className="space-y-4">
+          {snagsList.length === 0 ? (
+            <div className="p-8 text-center bg-emerald-50/60 rounded-2xl border border-emerald-200">
+              <CheckCircle2 size={32} className="mx-auto text-emerald-600 mb-2" />
+              <p className="font-display font-bold text-sm text-emerald-900">No Snags Recorded</p>
+              <p className="font-body text-xs text-emerald-700 mt-0.5">
+                All inspected checkpoints passed quality standards with zero defect observations.
+              </p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-4">
+              {snagsList.map((snag) => (
+                <div
+                  key={snag.key}
+                  className="bg-white rounded-2xl border border-rose-200 p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="font-mono text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg">
+                        Area: {snag.colLabel}
+                      </span>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                        snag.cell.priority === "HIGH"
+                          ? "bg-rose-600 text-white"
+                          : snag.cell.priority === "LOW"
+                          ? "bg-slate-200 text-slate-700"
+                          : "bg-amber-100 text-amber-800"
+                      }`}>
+                        Priority: {snag.cell.priority || "NORMAL"}
+                      </span>
+                    </div>
+
+                    <h4 className="font-display font-bold text-sm text-slate-900">
+                      S.NO {snag.rowId}: {snag.rowLabel}
+                    </h4>
+
+                    <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase mb-0.5">Defect Observation Note:</p>
+                      <p className="text-xs font-body text-slate-800 font-medium whitespace-pre-wrap">
+                        {snag.cell.remarks || "No specific remark provided."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Attached Photos Gallery */}
+                  {snag.cell.photos && snag.cell.photos.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[11px] font-bold text-slate-600 mb-1.5 flex items-center gap-1">
+                        📷 Attached Evidence ({snag.cell.photos.length} Photo{snag.cell.photos.length > 1 ? "s" : ""}):
+                      </p>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {snag.cell.photos.map((photoUrl, pIdx) => (
+                          <div
+                            key={pIdx}
+                            onClick={() => setLightboxPhoto(photoUrl)}
+                            className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0 cursor-pointer hover:scale-105 hover:border-blue-500 transition-all shadow-xs"
+                          >
+                            <img
+                              src={photoUrl}
+                              alt={`Defect ${pIdx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW MODE 3: FULL SHEET PAPER DOCUMENT */}
+      {viewMode === "full_paper" && (
+        <div className="p-3 sm:p-6 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-white shadow-md border border-slate-200 rounded p-2 max-w-[840px] mx-auto">
+            <JointInspectionPrintDoc data={inspection} />
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: Individual Cell / Snag Inspection Popover */}
+      {selectedSnagModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setSelectedSnagModal(null)}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedSnagModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                selectedSnagModal.cell.status === "fail"
+                  ? "bg-rose-100 text-rose-700"
+                  : selectedSnagModal.cell.status === "pass"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-700"
+              }`}>
+                {selectedSnagModal.cell.status === "fail" ? "✗" : selectedSnagModal.cell.status === "pass" ? "✓" : "—"}
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-base text-slate-900">
+                  {selectedSnagModal.rowLabel}
+                </h3>
+                <p className="font-body text-xs text-slate-500 font-semibold">
+                  Area: {selectedSnagModal.colLabel} · Status: <span className="uppercase font-bold">{selectedSnagModal.cell.status}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 font-body text-xs">
+              {selectedSnagModal.cell.priority && (
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold">Defect Priority:</span>
+                  <span className="font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                    {selectedSnagModal.cell.priority}
+                  </span>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/70">
+                <p className="font-bold text-slate-500 mb-1 uppercase text-[10px]">Observation & Remarks:</p>
+                <p className="text-slate-800 text-xs font-medium whitespace-pre-wrap">
+                  {selectedSnagModal.cell.remarks || "No comments attached to this point."}
+                </p>
+              </div>
+
+              {selectedSnagModal.cell.photos && selectedSnagModal.cell.photos.length > 0 && (
+                <div>
+                  <p className="font-bold text-slate-700 mb-2">
+                    Evidence Photos ({selectedSnagModal.cell.photos.length}):
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {selectedSnagModal.cell.photos.map((pUrl, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => setLightboxPhoto(pUrl)}
+                        className="h-32 rounded-xl overflow-hidden border border-slate-200 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all relative group"
+                      >
+                        <img
+                          src={pUrl}
+                          alt="Evidence"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity">
+                          Click to Enlarge
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedSnagModal(null)}
+                className="font-body text-xs font-bold px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Full-screen Photo Lightbox */}
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-150"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <button
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute top-4 right-4 text-white hover:text-slate-300 p-2 rounded-full bg-white/10 hover:bg-white/20"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={lightboxPhoto}
+            alt="Full Photo"
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded-xl shadow-2xl border border-white/20"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

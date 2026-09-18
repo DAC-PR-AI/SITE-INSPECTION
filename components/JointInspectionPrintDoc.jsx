@@ -2,7 +2,7 @@
 
 import React from "react";
 
-const CHECKLIST_ROWS = [
+export const CHECKLIST_ROWS = [
   { id: 1, label: "DOORS & WINDOWS" },
   { id: 2, label: "LOCKS AND LATCHES" },
   { id: 3, label: "WALL PAINTING" },
@@ -16,7 +16,7 @@ const CHECKLIST_ROWS = [
   { id: 11, label: "CLEANING" },
 ];
 
-const CHECKLIST_COLS = [
+export const CHECKLIST_COLS = [
   { key: "living", label: "LIVING" },
   { key: "dining", label: "DINING" },
   { key: "kitchen", label: "KITCHEN" },
@@ -29,7 +29,7 @@ const CHECKLIST_COLS = [
   { key: "addl", label: "ADDL.\n(IF ANY)" },
 ];
 
-const SIGNATURE_ROWS = [
+export const SIGNATURE_ROWS = [
   [
     { key: "customer", label: "CUSTOMER SIGN" },
     { key: "siteEngineer", label: "SITE ENGINEER" },
@@ -58,11 +58,12 @@ function formatDate(dateStr) {
   }
 }
 
-export default function JointInspectionPrintDoc({ data }) {
-  if (!data) return null;
+export default function JointInspectionPrintDoc({ data, inspection }) {
+  const docData = data || inspection;
+  if (!docData) return null;
 
-  const cells = data.cells || {};
-  const signatures = data.signatures || {};
+  const cells = docData.cells || {};
+  const signatures = docData.signatures || {};
 
   const getCellMark = (itemId, colKey) => {
     const cell = cells[`${itemId}__${colKey}`];
@@ -74,22 +75,22 @@ export default function JointInspectionPrintDoc({ data }) {
     return "";
   };
 
-  const formattedProjectName = data.projectName
-    ? data.projectName.replace(/^DAC\s+/i, "").toUpperCase()
+  const formattedProjectName = docData.projectName
+    ? docData.projectName.replace(/^DAC\s+/i, "").toUpperCase()
     : "";
 
-  const inspectionTypeStr = data.inspectionType
-    ? data.inspectionType.toUpperCase()
+  const inspectionTypeStr = docData.inspectionType
+    ? docData.inspectionType.toUpperCase()
     : ".............................";
 
-  const dateStr = formatDate(data.inspectionDate) || "..................";
-  const customerNameStr = data.customerName
-    ? data.customerName.toUpperCase()
+  const dateStr = formatDate(docData.inspectionDate) || "..................";
+  const customerNameStr = docData.customerName
+    ? docData.customerName.toUpperCase()
     : "....................................................................";
-  const unitNoStr = data.unitNumber
-    ? data.unitNumber.toUpperCase()
+  const unitNoStr = docData.unitNumber
+    ? docData.unitNumber.toUpperCase()
     : "......................";
-  const interiorDaysStr = data.interiorDays || "............";
+  const interiorDaysStr = docData.interiorDays || "............";
 
   return (
     <div className="dac-paper-form bg-white text-black font-sans box-border w-full max-w-[820px] mx-auto p-4 sm:p-6 print:p-0 print:max-w-none">
@@ -206,8 +207,8 @@ export default function JointInspectionPrintDoc({ data }) {
                 colSpan={CHECKLIST_COLS.length}
                 className="p-1 text-left font-medium text-[9px] sm:text-[10px] leading-tight"
               >
-                {data.generalRemarks ? (
-                  <span className="text-black font-semibold">{data.generalRemarks}</span>
+                {docData.generalRemarks ? (
+                  <span className="text-black font-semibold">{docData.generalRemarks}</span>
                 ) : (
                   <span className="text-gray-400 italic">Nil</span>
                 )}
@@ -222,7 +223,7 @@ export default function JointInspectionPrintDoc({ data }) {
         <p className="font-bold mb-1 uppercase">
           I/WE HEREBY DONE{" "}
           <span className="underline font-black px-1">
-            {data.inspectionType ? data.inspectionType.toUpperCase() : "__________"}
+            {docData.inspectionType ? docData.inspectionType.toUpperCase() : "__________"}
           </span>{" "}
           JOINT INSPECTION ON THIS DAY IN MY FLAT/VILLA AND I/WE ARE FULLY
           SATISFIED. TO TAKE OVER THE FLAT/VILLA AND THE HANDOVER IS SUBJECT TO
@@ -244,14 +245,14 @@ export default function JointInspectionPrintDoc({ data }) {
       </div>
 
       {/* Customer Verification Photo */}
-      {data.customerVerificationPhoto && (
+      {docData.customerVerificationPhoto && (
         <div className="border-2 border-black p-2 mb-2 flex items-center justify-between text-[9px] sm:text-[10px]">
           <div>
             <p className="font-bold uppercase mb-0.5">CUSTOMER VERIFICATION PHOTO</p>
             <p className="text-[8.5px] sm:text-[9px] text-gray-700">Verified proof of executive & customer presence on-site.</p>
           </div>
           <div className="h-16 w-24 border border-black overflow-hidden flex items-center justify-center bg-gray-50 shrink-0 ml-2">
-            <img src={data.customerVerificationPhoto} alt="Customer Verification" className="h-full w-full object-cover" />
+            <img src={docData.customerVerificationPhoto} alt="Customer Verification" className="h-full w-full object-cover" />
           </div>
         </div>
       )}
