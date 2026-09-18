@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   ShieldCheck, ArrowLeft, Search, CheckCircle2, XCircle,
   Clock, Lock, FileText, Check, X, PenTool, AlertTriangle, RotateCcw,
