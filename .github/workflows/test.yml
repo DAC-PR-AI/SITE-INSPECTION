@@ -1,0 +1,48 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js app
+        run: npm run build
+        env:
+          GOOGLE_SHEETS_CLIENT_EMAIL: ""
+          GOOGLE_SHEETS_PRIVATE_KEY: ""
+          GOOGLE_SHEET_ID: ""
+          GOOGLE_PHOTO_SHEET_ID: ""
+          GOOGLE_DRIVE_FOLDER_ID: ""
+          FORCE_LOCAL_MODE: "true"
+
+      - name: Run E2E Test Suite in Local Mode
+        run: |
+          FORCE_LOCAL_MODE=true PORT=3010 npx next start -p 3010 &
+          sleep 5
+          TEST_URL=http://localhost:3010 npm test
+        env:
+          GOOGLE_SHEETS_CLIENT_EMAIL: ""
+          GOOGLE_SHEETS_PRIVATE_KEY: ""
+          GOOGLE_SHEET_ID: ""
+          GOOGLE_PHOTO_SHEET_ID: ""
+          GOOGLE_DRIVE_FOLDER_ID: ""
+          FORCE_LOCAL_MODE: "true"
+          TEST_URL: "http://localhost:3010"
