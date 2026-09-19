@@ -4,6 +4,7 @@ import { getSessionUser } from "../../../lib/session";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
 import { WORKFLOW_STATES, getSpotSignatureState } from "../../../lib/workflow";
 import { sanitizeInspectionPayload } from "../../../lib/security";
+import { getInspection } from "../../../lib/store";
 import crypto from "crypto";
 
 /**
@@ -26,7 +27,7 @@ export async function POST(request) {
     const ip = getClientIp(request);
 
     // Rate limit check (100 submissions per 15 min window)
-    const { limited, resetInMs } = checkRateLimit(ip, "SUBMIT", 100);
+    const { limited, resetInMs } = await checkRateLimit(ip, "SUBMIT", 100);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
@@ -38,7 +39,7 @@ export async function POST(request) {
     // ── Server-side session authentication ───────────────────────────────
     const sessionUser = getSessionUser(request);
     if (!sessionUser) {
-      recordFailedAttempt(ip, "SUBMIT");
+      await recordFailedAttempt(ip, "SUBMIT");
       return NextResponse.json(
         { error: "Authentication required. Please log in to start an inspection." },
         { status: 401 }
@@ -55,7 +56,7 @@ export async function POST(request) {
       );
     }
 
-    clearRateLimit(ip, "SUBMIT");
+    await clearRateLimit(ip, "SUBMIT");
 
     let data;
     try {
@@ -68,6 +69,20 @@ export async function POST(request) {
     if (!data || !data.inspectionId) {
       return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
+
+    // Only the on-site spot signatures (Technical Executive + Customer) may come from the
+    // submit payload. Site Engineer and Level 3 signatures are applied via /api/approval,
+    // so keep whatever is already stored and ignore any client-supplied ones.
+    const SPOT_SIGNATURE_KEYS = ["technicalExecutive", "customer"];
+    const existingRecord = await getInspection(data.inspectionId).catch(() => null);
+    const trustedSignatures = {};
+    for (const [key, value] of Object.entries(existingRecord?.signatures || {})) {
+      if (!SPOT_SIGNATURE_KEYS.includes(key)) trustedSignatures[key] = value;
+    }
+    for (const key of SPOT_SIGNATURE_KEYS) {
+      if (data.signatures?.[key]) trustedSignatures[key] = data.signatures[key];
+    }
+    data.signatures = trustedSignatures;
 
     const now = new Date();
     const timestampStr = `${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -99,7 +114,9 @@ export async function POST(request) {
       signature: "None",
     };
 
-    const approvalHistory = data.approvalHistory || [];
+    const approvalHistory = Array.isArray(existingRecord?.approvalHistory)
+      ? [...existingRecord.approvalHistory]
+      : [];
     if (!approvalHistory.some((a) => a.role === sessionUser.role && a.action.includes("Created"))) {
       approvalHistory.push(initialAuditRecord);
     }

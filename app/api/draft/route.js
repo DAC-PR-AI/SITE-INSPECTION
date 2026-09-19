@@ -15,7 +15,7 @@ export async function POST(request) {
     const ip = getClientIp(request);
 
     // Rate limit check for draft saves (1000 requests per 15 min window)
-    const { limited, resetInMs } = checkRateLimit(ip, "DRAFT_WRITE", 1000);
+    const { limited, resetInMs } = await checkRateLimit(ip, "DRAFT_WRITE", 1000);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
@@ -27,7 +27,7 @@ export async function POST(request) {
     // Verify session
     const sessionUser = getSessionUser(request);
     if (!sessionUser) {
-      recordFailedAttempt(ip, "DRAFT_WRITE");
+      await recordFailedAttempt(ip, "DRAFT_WRITE");
       return NextResponse.json(
         { error: "Authentication required to save draft." },
         { status: 401 }
@@ -46,7 +46,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
 
-    clearRateLimit(ip, "DRAFT_WRITE");
+    await clearRateLimit(ip, "DRAFT_WRITE");
 
     // Strip passcode from data before storing
     const { passcode: _p, ...cleanData } = data;
@@ -70,6 +70,57 @@ export async function GET(request) {
 
     const data = await getInspection(inspectionId.trim());
     if (!data) return NextResponse.json({ error: "Inspection draft not found" }, { status: 404 });
+
+    const sessionUser = getSessionUser(request);
+    if (!sessionUser) {
+      // Redact signature image data (keep keys and a "signed" marker, drop dataUrl strings)
+      const redactedSignatures = {};
+      for (const [key, value] of Object.entries(data.signatures || {})) {
+        if (!value) continue;
+        if (typeof value === "object") {
+          const { dataUrl: _d, signature: _s, sigData: _sd, ...rest } = value;
+          redactedSignatures[key] = {
+            ...rest,
+            status: rest.status || "signed",
+            signed: true,
+          };
+        } else {
+          redactedSignatures[key] = {
+            status: "signed",
+            signed: true,
+          };
+        }
+      }
+
+      // Drop approvalHistory user identifiers (userId, userNumber, userName, actorName, actor, email)
+      const redactedHistory = (data.approvalHistory || []).map((entry) => {
+        const {
+          userId: _u,
+          userNumber: _un,
+          userName: _unm,
+          actorName: _an,
+          actor: _act,
+          email: _em,
+          ...rest
+        } = entry;
+        return {
+          ...rest,
+          userId: "",
+          userNumber: "",
+          userName: "",
+          actorName: "",
+        };
+      });
+
+      const redactedData = {
+        ...data,
+        signatures: redactedSignatures,
+        approvalHistory: redactedHistory,
+      };
+
+      return NextResponse.json({ data: redactedData, backend: backendName });
+    }
+
     return NextResponse.json({ data, backend: backendName });
   } catch (err) {
     console.error("[draft] GET error:", err);
