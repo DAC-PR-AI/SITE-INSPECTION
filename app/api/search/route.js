@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { getAllInspections, getProjects } from "../../../lib/store";
+import { getSessionUser } from "../../../lib/session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   try {
+    if (!getSessionUser(request)) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const q = (searchParams.get("q") || "").trim().toLowerCase();
 
