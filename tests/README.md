@@ -37,6 +37,7 @@ npm test
 
 | Test Module | Coverage Scope |
 | :--- | :--- |
+| **`tests/signature-dedupe.test.mjs`** | Signature de-duplication and persist filtering regression test preventing payload size bloat across 8 sequential approval stages. |
 | **`tests/full-e2e.mjs`** | Comprehensive single-command E2E suite: Pages, Static Assets, Authentication, Rate Limiting, Lockouts, Draft Saves & Redactions, Photo Uploads, 8-Role Signature Pipeline, Rejection / Recheck Loops, and Admin Overrides. |
 | **`tests/regression-test.mjs`** | Regression checks across all role PINs, security boundaries, and input validation. |
 | **`tests/security-audit-test.mjs`** | Session hijacking, cookie HMAC tampering, and XSS sanitization checks. |
