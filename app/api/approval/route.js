@@ -296,6 +296,9 @@ export async function POST(req) {
     });
   } catch (e) {
     console.error("[approval] POST error:", e?.message || "Unknown error");
+    if (e?.code === "PAYLOAD_TOO_LARGE") {
+      return NextResponse.json({ error: e.message }, { status: 413 });
+    }
     return NextResponse.json({ error: "Failed to process approval" }, { status: 500 });
   }
 }
