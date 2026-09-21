@@ -267,8 +267,8 @@ export async function POST(req) {
     // Create Audit Entry — including individual identity from session
     const auditRecord = createAuditRecord({
       inspectionId,
-      projectName: inspection.projectName || "",
-      unitNumber: inspection.unitNumber || "",
+      projectName: inspection.projectName || inspection.project || "",
+      unitNumber: inspection.unitNumber || inspection.unit || "",
       inspectionType: inspection.inspectionType || "INTERIOR JOINT INSPECTION",
       userId: sessionUser.user_id || "",
       userNumber: sessionUser.number || "",
@@ -287,7 +287,7 @@ export async function POST(req) {
     inspection.status = newStatus;
     inspection.latestAuditRecord = auditRecord;
 
-    await upsertInspection(inspection, { submitting: newStatus !== WORKFLOW_STATES.DRAFT });
+    await upsertInspection(inspection, { submitting: false });
 
     return NextResponse.json({
       ok: true,

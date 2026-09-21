@@ -70,6 +70,21 @@ export async function POST(request) {
       return NextResponse.json({ error: "inspectionId is required" }, { status: 400 });
     }
 
+    const projectName = (data.projectName || data.project || "").trim();
+    const unitNumber = (data.unitNumber || data.unit || "").trim();
+    const inspectionType = (data.inspectionType || "").trim() || "INTERIOR JOINT INSPECTION";
+
+    if (!projectName || !unitNumber) {
+      return NextResponse.json(
+        { error: "Project Name and Unit Number are mandatory to create or submit an inspection." },
+        { status: 400 }
+      );
+    }
+
+    data.projectName = projectName;
+    data.unitNumber = unitNumber;
+    data.inspectionType = inspectionType;
+
     // Only the on-site spot signatures (Technical Executive + Customer) may come from the
     // submit payload. Site Engineer and Level 3 signatures are applied via /api/approval,
     // so keep whatever is already stored and ignore any client-supplied ones.
@@ -99,9 +114,9 @@ export async function POST(request) {
     const initialAuditRecord = {
       id: crypto.randomUUID(),
       inspectionId: data.inspectionId,
-      project: data.projectName || "",
-      unit: data.unitNumber || "",
-      inspectionType: data.inspectionType || "IJI",
+      project: projectName,
+      unit: unitNumber,
+      inspectionType: inspectionType,
       // Individual identity from authenticated session
       userId:   sessionUser.user_id || "",
       userNumber: sessionUser.number || "",
@@ -126,9 +141,13 @@ export async function POST(request) {
 
     const updatedData = {
       ...cleanData,
-      inspectionType: cleanData.inspectionType || "IJI",
+      projectName,
+      unitNumber,
+      inspectionType,
       workflowStatus: targetStatus,
       status: "submitted",
+      submittedAt: existingRecord?.submittedAt || now.toISOString(),
+      updatedAt: now.toISOString(),
       approvalHistory,
       latestAuditRecord: initialAuditRecord,
     };

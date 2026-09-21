@@ -1092,7 +1092,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [portalError, setPortalError] = useState("");
   const [verifyingPortalPin, setVerifyingPortalPin] = useState(false);
 
-  const [authTarget, setAuthTarget] = useState("start"); // "start" | "resume"
+  const [authTarget, setAuthTarget] = useState("start"); // "start" | "resume" | "login"
   const [authMode, setAuthMode] = useState("number"); // "number" | "google"
   const [authName, setAuthName] = useState("Raj");
   const [authNumber, setAuthNumber] = useState("");
@@ -1167,8 +1167,15 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
         fetchSession();
         if (authTarget === "resume") {
           await onResume(resumeId.trim());
-        } else {
+        } else if (authTarget === "start") {
+          if (!project || !unit || !inspectionType) {
+            if (push) push("Authenticated! Please choose your Inspection Type, Project, and Unit to start.", "info");
+            return;
+          }
           await onStart(project, unit, inspectionType, id, data.user?.name || "session_auth");
+        } else {
+          // authTarget === "login"
+          if (push) push(`Signed in as ${data.user?.name || data.role}. Choose Project & Unit to begin.`, "success");
         }
       } else {
         setPasswordError(data.error || "Authentication failed. Please check your credentials against the SECOND SHEET.");
@@ -1351,7 +1358,8 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                     <button
                       type="button"
                       onClick={() => {
-                        setAuthTarget("start");
+                        setAuthTarget("login");
+                        setPasswordError("");
                         setShowPasswordModal(true);
                       }}
                       className="text-xs font-body font-bold px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-xs transition-colors"
@@ -1379,7 +1387,8 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthTarget("start");
+                    setAuthTarget("login");
+                    setPasswordError("");
                     setShowPasswordModal(true);
                   }}
                   className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
@@ -1528,12 +1537,18 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
               </div>
               <div>
                 <h3 className="font-display font-bold text-lg text-slate-900">
-                  {authTarget === "resume" ? "Resume Inspection Authentication" : "Start Inspection Authentication"}
+                  {authTarget === "resume"
+                    ? "Resume Inspection Authentication"
+                    : authTarget === "login"
+                    ? "Technical Executive Sign In"
+                    : "Start Inspection Authentication"}
                 </h3>
                 <p className="font-body text-xs text-slate-500">
                   {authTarget === "resume"
                     ? "Only Admin & Technical Executive can resume and submit inspections"
-                    : "Only Admin & Technical Executive can start"}
+                    : authTarget === "login"
+                    ? "Sign in with password from Column G of the SECOND SHEET"
+                    : "Only Admin & Technical Executive can start inspections"}
                 </p>
               </div>
             </div>
@@ -1619,7 +1634,13 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                   disabled={verifyingPin}
                   className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-2"
                 >
-                  {verifyingPin ? "Verifying..." : (authTarget === "resume" ? "Authenticate & Load Draft" : "Authenticate & Start")}
+                  {verifyingPin
+                    ? "Verifying..."
+                    : authTarget === "resume"
+                    ? "Authenticate & Load Draft"
+                    : authTarget === "login"
+                    ? "Sign In"
+                    : "Authenticate & Start"}
                 </button>
               </div>
             </form>
@@ -2682,6 +2703,11 @@ export default function InspectionApp() {
   }, []);
 
   async function handleStart(project, unit, type, id, verifiedPin = "") {
+    if (!project || !unit) {
+      if (push) push("Please select both a Project and a Unit Number first.", "error");
+      return;
+    }
+
     if (verifiedPin) {
       setSiteEngineerPasscode(verifiedPin);
     }
