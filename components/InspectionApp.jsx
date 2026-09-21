@@ -106,7 +106,7 @@ function cellKey(itemId, areaKey) {
   return `${itemId}__${areaKey}`;
 }
 function getCell(data, itemId, areaKey) {
-  return data.cells[cellKey(itemId, areaKey)] || { status: null };
+  return (data?.cells || {})[cellKey(itemId, areaKey)] || { status: null };
 }
 
 // Photos are compressed hard because the final JSON has to fit inside
@@ -453,7 +453,12 @@ function SignatureModal({ signatory, onClose, onSave }) {
 function CustomerVerificationPhoto({ data, updateField, push }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const photo = data?.customerVerificationPhoto;
+  const photo =
+    data?.customerVerificationPhoto ||
+    data?.verificationPhoto ||
+    data?.handoverPhoto ||
+    (typeof data?.photos === "object" ? data?.photos?.customerVerification : null) ||
+    null;
 
   async function handleFile(file) {
     if (!file) return;
@@ -506,7 +511,7 @@ function CustomerVerificationPhoto({ data, updateField, push }) {
               </button>
               <button
                 type="button"
-                onClick={() => updateField({ customerVerificationPhoto: null })}
+                onClick={() => updateField({ customerVerificationPhoto: null, verificationPhoto: null, handoverPhoto: null })}
                 className="font-body text-xs font-semibold px-3.5 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 shadow-md flex items-center gap-1.5"
               >
                 <Trash2 size={14} /> Remove
@@ -556,7 +561,21 @@ function CustomerVerificationPhoto({ data, updateField, push }) {
 
 function SignatureBox({ signatory, value, onSign, hasVerificationPhoto = true, push }) {
   const [open, setOpen] = useState(false);
-  const isSigned = !!value;
+  const signatureImg =
+    typeof value === "string"
+      ? value
+      : (typeof value?.dataUrl === "string"
+          ? value.dataUrl
+          : (typeof value?.signatureUrl === "string"
+              ? value.signatureUrl
+              : (typeof value?.url === "string" ? value.url : null)));
+
+  const isSigned =
+    !!value &&
+    (typeof value === "boolean"
+      ? value
+      : (value === "SIGNED" || value?.status === "signed" || value?.signed === true || !!signatureImg));
+
   const isClickable = signatory.directSign === true;
 
   const handleClick = () => {
@@ -586,8 +605,8 @@ function SignatureBox({ signatory, value, onSign, hasVerificationPhoto = true, p
           {isSigned ? (
             <div className="space-y-1.5">
               <div className="h-14 flex items-center justify-center bg-white/70 rounded-xl border border-emerald-100 p-1">
-                {value.startsWith("data:") ? (
-                  <img src={value} alt={`${signatory.label} signature`} className="h-full max-h-12 object-contain" />
+                {signatureImg && typeof signatureImg === "string" && (signatureImg.startsWith("data:") || signatureImg.startsWith("http://") || signatureImg.startsWith("https://")) ? (
+                  <img src={signatureImg} alt={`${signatory.label} signature`} className="h-full max-h-12 object-contain" />
                 ) : (
                   <span className="font-body text-xs font-bold text-emerald-800">✓ Digitally Signed</span>
                 )}
@@ -1663,7 +1682,13 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
     return true;
   });
 
-  const canSubmit = !!(data.customerVerificationPhoto);
+  const hasVerificationPhoto = !!(
+    data?.customerVerificationPhoto ||
+    data?.verificationPhoto ||
+    data?.handoverPhoto ||
+    (typeof data?.photos === "object" && data?.photos?.customerVerification)
+  );
+  const canSubmit = hasVerificationPhoto;
 
   async function handleManualSave() {
     setSaveState("saving");
@@ -2020,10 +2045,10 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
               <SignatureBox
                 key={s.key}
                 signatory={s}
-                value={data.signatures[s.key]}
-                hasVerificationPhoto={!!data.customerVerificationPhoto}
+                value={data?.signatures?.[s.key]}
+                hasVerificationPhoto={hasVerificationPhoto}
                 push={push}
-                onSign={(key, dataUrl) => updateField({ signatures: { ...data.signatures, [key]: dataUrl } })}
+                onSign={(key, dataUrl) => updateField({ signatures: { ...(data?.signatures || {}), [key]: dataUrl } })}
               />
             ))}
           </div>
@@ -2388,8 +2413,21 @@ export default function InspectionApp() {
       const res = await fetch(url);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Draft not found");
-      setData(body.data);
-      setScreen(body.data.status === "submitted" ? "submitted" : "form");
+      const loadedData = body.data || {};
+      loadedData.cells = loadedData.cells || {};
+      loadedData.signatures = loadedData.signatures || {};
+      loadedData.customerVerificationPhoto =
+        loadedData.customerVerificationPhoto ||
+        loadedData.verificationPhoto ||
+        loadedData.handoverPhoto ||
+        (typeof loadedData.photos === "object" ? loadedData.photos?.customerVerification : "") ||
+        "";
+      loadedData.interiorDays =
+        loadedData.interiorDays !== undefined && loadedData.interiorDays !== null && String(loadedData.interiorDays).trim() !== ""
+          ? String(loadedData.interiorDays).trim()
+          : (loadedData.days !== undefined && loadedData.days !== null ? String(loadedData.days).trim() : "");
+      setData(loadedData);
+      setScreen(loadedData.status === "submitted" ? "submitted" : "form");
       push("Draft loaded.", "success");
     } catch (e) {
       push(e.message || "Couldn't find that draft.", "error");
