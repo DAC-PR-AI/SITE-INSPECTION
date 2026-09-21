@@ -830,11 +830,24 @@ export default function ApprovalPortal({
 
                 <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
                   <h4 className="font-display font-bold text-sm sm:text-base text-slate-900 mb-2 flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-blue-600" /> Customer Declaration
+                    <ShieldCheck size={16} className="text-blue-600" /> Customer Declaration & Verification
                   </h4>
-                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs font-body text-slate-700 space-y-1">
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs font-body text-slate-700 space-y-2">
                     <p>Status: <b>{selectedInspection.declarationChecked ? "✓ Confirmed & Accepted" : "Pending Confirmation"}</b></p>
                     <p>Interior Works Allowed Duration: <b>{selectedInspection.interiorDays || "30"} days</b></p>
+                    {(selectedInspection.customerVerificationPhoto || selectedInspection.verificationPhoto || selectedInspection.handoverPhoto) && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="font-bold text-[11px] text-slate-500 uppercase tracking-wider block mb-1">On-Site Verification Photo:</span>
+                        <div className="h-20 w-32 rounded-lg border border-slate-300 overflow-hidden bg-white shadow-xs">
+                          <img
+                            src={selectedInspection.customerVerificationPhoto || selectedInspection.verificationPhoto || selectedInspection.handoverPhoto}
+                            alt="Customer Verification"
+                            className="w-full h-full object-cover cursor-pointer hover:opacity-90"
+                            onClick={() => setLightboxPhoto(selectedInspection.customerVerificationPhoto || selectedInspection.verificationPhoto || selectedInspection.handoverPhoto)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
