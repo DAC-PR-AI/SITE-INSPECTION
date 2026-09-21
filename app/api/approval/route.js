@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getInspection, getAllInspections, upsertInspection } from "../../../lib/store";
-import { getRoleConfig } from "../../../lib/auth";
+import { getRoleConfig, verifyRolePassword } from "../../../lib/auth";
 import { getSessionUser } from "../../../lib/session";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
 import {
@@ -18,6 +18,11 @@ const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export async function GET(req) {
   try {
+    // Reads require a valid session (any role); the portal always logs in first.
+    if (!getSessionUser(req)) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const roleParam = searchParams.get("role") || "";
     const inspectionId = searchParams.get("inspectionId");
@@ -212,8 +217,20 @@ export async function POST(req) {
       }
     }
 
+    const rawAction = String(action || "").trim().toLowerCase();
+    const actionNormalized =
+      rawAction === "approved" || rawAction === "approve"
+        ? "approve"
+        : rawAction === "rejected" || rawAction === "reject"
+          ? "reject"
+          : rawAction === "rechecked" || rawAction === "recheck"
+            ? "recheck"
+            : rawAction;
+
     const effectiveAction =
-      normalizedRole === "CUSTOMER" || normalizedRole === "TECHNICAL_EXECUTIVE" ? "spot_sign" : action;
+      normalizedRole === "CUSTOMER" || normalizedRole === "TECHNICAL_EXECUTIVE"
+        ? "spot_sign"
+        : actionNormalized;
 
     if (!canUserPerformAction(roleConfig.label, effectiveAction, inspection)) {
       return NextResponse.json(
@@ -223,7 +240,7 @@ export async function POST(req) {
     }
 
     // Rejection reason check
-    if (action === "reject" && !comments.trim()) {
+    if (actionNormalized === "reject" && !comments.trim()) {
       return NextResponse.json({ error: "Rejection reason is mandatory." }, { status: 400 });
     }
 
@@ -267,6 +284,7 @@ export async function POST(req) {
     inspection.approvalHistory.push(auditRecord);
 
     inspection.workflowStatus = newStatus;
+    inspection.status = newStatus;
     inspection.latestAuditRecord = auditRecord;
 
     await upsertInspection(inspection, { submitting: newStatus !== WORKFLOW_STATES.DRAFT });
@@ -278,6 +296,9 @@ export async function POST(req) {
     });
   } catch (e) {
     console.error("[approval] POST error:", e?.message || "Unknown error");
+    if (e?.code === "PAYLOAD_TOO_LARGE") {
+      return NextResponse.json({ error: e.message }, { status: 413 });
+    }
     return NextResponse.json({ error: "Failed to process approval" }, { status: 500 });
   }
 }

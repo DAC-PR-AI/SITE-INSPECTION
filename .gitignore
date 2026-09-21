@@ -35,3 +35,4 @@ Thumbs.db
 # scratch / temporary files
 /scratch/
 orig_crane.txt
+e2e-report.json

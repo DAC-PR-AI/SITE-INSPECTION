@@ -1,5 +1,5 @@
 import http from "http";
-import { getInspectionWorkflowInfo, WORKFLOW_STATES } from "./lib/workflow.js";
+import { getInspectionWorkflowInfo, WORKFLOW_STATES } from "../lib/workflow.js";
 
 const BASE_URL = process.env.TEST_URL || "http://localhost:3000";
 

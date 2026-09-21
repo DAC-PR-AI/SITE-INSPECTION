@@ -14,7 +14,7 @@ for (const line of envContent.split('\n')) {
 
 async function test() {
   console.log('Testing getProjects from lib/store...');
-  const store = require('./lib/store.js');
+  const store = require('../lib/store.js');
   try {
     const projects = await store.getProjects();
     console.log('Returned projects:', JSON.stringify(projects, null, 2));

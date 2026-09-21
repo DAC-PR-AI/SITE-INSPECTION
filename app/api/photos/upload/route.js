@@ -17,7 +17,7 @@ export async function POST(request) {
     const ip = getClientIp(request);
 
     // Rate limit check: max 500 uploads per IP per 15 min window (supports extensive photo documentation)
-    const { limited, resetInMs } = checkRateLimit(ip, "PHOTO_UPLOAD", 500);
+    const { limited, resetInMs } = await checkRateLimit(ip, "PHOTO_UPLOAD", 500);
     if (limited) {
       const minutes = Math.ceil(resetInMs / 60000);
       return NextResponse.json(
@@ -30,19 +30,19 @@ export async function POST(request) {
     try {
       data = await request.json();
     } catch {
-      recordFailedAttempt(ip, "PHOTO_UPLOAD");
+      await recordFailedAttempt(ip, "PHOTO_UPLOAD");
       return NextResponse.json({ error: "Invalid JSON request payload." }, { status: 400 });
     }
 
     if (!data || !data.dataUrl) {
-      recordFailedAttempt(ip, "PHOTO_UPLOAD");
+      await recordFailedAttempt(ip, "PHOTO_UPLOAD");
       return NextResponse.json({ error: "Missing required photo dataUrl parameter." }, { status: 400 });
     }
 
     // Security Validation: MIME type, base64 structure, max 10MB size
     const imageValidation = validateImageDataUrl(data.dataUrl, 10 * 1024 * 1024);
     if (!imageValidation.valid) {
-      recordFailedAttempt(ip, "PHOTO_UPLOAD");
+      await recordFailedAttempt(ip, "PHOTO_UPLOAD");
       return NextResponse.json({ error: imageValidation.error }, { status: 400 });
     }
 

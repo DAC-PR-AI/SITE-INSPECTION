@@ -13,7 +13,7 @@ envFile.split('\n').forEach(line => {
   }
 });
 
-import { getProjects, getInspection } from './lib/sheets.js';
+import { getProjects, getInspection } from '../lib/sheets.js';
 
 async function test() {
   console.log('Testing getProjects()...');

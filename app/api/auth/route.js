@@ -6,6 +6,7 @@ import {
   authenticateFieldStaff,
   isFieldStaffRole,
   getRoleConfig,
+  verifyRolePassword,
 } from "../../../lib/auth";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIp } from "../../../lib/rateLimit";
 import { createSessionCookie, clearSessionCookie, getSessionUser } from "../../../lib/session";
@@ -63,7 +64,7 @@ export async function POST(req) {
     // ── PATH 1: Password-based authentication (Sheet column G) ──────────────
     if (password && (userName || email || userNumber)) {
       const targetUser = String(userName || email || userNumber).trim();
-      const { limited, resetInMs } = checkRateLimit(ip, "PASSWORD_AUTH");
+      const { limited, resetInMs } = await checkRateLimit(ip, "PASSWORD_AUTH");
       if (limited) {
         const minutes = Math.ceil(resetInMs / 60000);
         return NextResponse.json(
@@ -74,11 +75,11 @@ export async function POST(req) {
 
       const result = await verifyUserPasswordAndLookupUser(targetUser, String(password).trim());
       if (!result.ok) {
-        recordFailedAttempt(ip, "PASSWORD_AUTH");
+        await recordFailedAttempt(ip, "PASSWORD_AUTH");
         return NextResponse.json({ ok: false, error: result.error }, { status: 401 });
       }
 
-      clearRateLimit(ip, "PASSWORD_AUTH");
+      await clearRateLimit(ip, "PASSWORD_AUTH");
 
       const sessionCookie = createSessionCookie(result.user);
       const res = NextResponse.json({
@@ -101,7 +102,7 @@ export async function POST(req) {
         return NextResponse.json({ ok: false, error: `Unknown role: "${effectiveRole}".` }, { status: 400 });
       }
 
-      const { limited, resetInMs } = checkRateLimit(ip, roleConfig.id);
+      const { limited, resetInMs } = await checkRateLimit(ip, roleConfig.id);
       if (limited) {
         const minutes = Math.ceil(resetInMs / 60000);
         return NextResponse.json(
@@ -112,11 +113,11 @@ export async function POST(req) {
 
       const isPinValid = verifyRolePassword(effectiveRole, String(effectivePin).trim());
       if (!isPinValid) {
-        recordFailedAttempt(ip, roleConfig.id);
+        await recordFailedAttempt(ip, roleConfig.id);
         return NextResponse.json({ ok: false, error: "Incorrect 6-digit passcode." }, { status: 401 });
       }
 
-      clearRateLimit(ip, roleConfig.id);
+      await clearRateLimit(ip, roleConfig.id);
 
       const user = {
         user_id: `ROLE-${roleConfig.id}`,
@@ -141,7 +142,7 @@ export async function POST(req) {
 
     // ── PATH 3: Google OAuth Admin login ──────────────────────────────────
     if (credential) {
-      const { limited, resetInMs } = checkRateLimit(ip, "GOOGLE_AUTH");
+      const { limited, resetInMs } = await checkRateLimit(ip, "GOOGLE_AUTH");
       if (limited) {
         const minutes = Math.ceil(resetInMs / 60000);
         return NextResponse.json(
@@ -152,11 +153,11 @@ export async function POST(req) {
 
       const result = await verifyGoogleTokenAndLookupUser(credential);
       if (!result.ok) {
-        recordFailedAttempt(ip, "GOOGLE_AUTH");
+        await recordFailedAttempt(ip, "GOOGLE_AUTH");
         return NextResponse.json({ ok: false, error: result.error }, { status: 403 });
       }
 
-      clearRateLimit(ip, "GOOGLE_AUTH");
+      await clearRateLimit(ip, "GOOGLE_AUTH");
 
       const sessionCookie = createSessionCookie(result.user);
       const res = NextResponse.json({
@@ -198,7 +199,7 @@ export async function POST(req) {
 
     // ── PATH 5: Number-based login ────────────────────────────────────────
     if (userName && userNumber) {
-      const { limited, resetInMs } = checkRateLimit(ip, "USER_NUMBER_AUTH");
+      const { limited, resetInMs } = await checkRateLimit(ip, "USER_NUMBER_AUTH");
       if (limited) {
         const minutes = Math.ceil(resetInMs / 60000);
         return NextResponse.json(
@@ -213,11 +214,11 @@ export async function POST(req) {
       );
 
       if (!result.ok) {
-        recordFailedAttempt(ip, "USER_NUMBER_AUTH");
+        await recordFailedAttempt(ip, "USER_NUMBER_AUTH");
         return NextResponse.json({ ok: false, error: result.error }, { status: 401 });
       }
 
-      clearRateLimit(ip, "USER_NUMBER_AUTH");
+      await clearRateLimit(ip, "USER_NUMBER_AUTH");
 
       const sessionCookie = createSessionCookie(result.user);
       const res = NextResponse.json({

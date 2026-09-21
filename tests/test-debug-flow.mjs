@@ -1,5 +1,5 @@
 import http from 'http';
-import { WORKFLOW_STATES } from './lib/workflow.js';
+import { WORKFLOW_STATES } from '../lib/workflow.js';
 
 const BASE_URL = 'http://localhost:3002';
 

@@ -31,7 +31,7 @@ auth.authorize().then(() => {
   console.log('AUTHORIZATION SUCCESSFUL WITH CLEANED KEY!');
   const sheets = google.sheets({ version: 'v4', auth });
   return sheets.spreadsheets.values.get({
-    spreadsheetId: '1d5IsJnZXrowt8BXreqtQp_o4y6hSV2K8suFGv-kqy2I',
+    spreadsheetId: process.env.GOOGLE_SHEET_ID || 'YOUR_PRIMARY_SPREADSHEET_ID',
     range: 'Projects!A1:B10',
   });
 }).then(res => {

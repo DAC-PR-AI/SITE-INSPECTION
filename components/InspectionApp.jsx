@@ -69,8 +69,15 @@ function genInspectionId() {
   const y = d.getFullYear().toString().slice(-2);
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  const rand = Math.floor(1000 + Math.random() * 9000);
-  return `DAC-JIC-${y}${m}${day}-${rand}`;
+  let randStr = "";
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    randStr = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  } else {
+    randStr = Math.random().toString(36).slice(2, 10);
+  }
+  return `DAC-JIC-${y}${m}${day}-${randStr}`;
 }
 
 function freshInspection(projectName, unitNumber, inspectionType = "INTERIOR JOINT INSPECTION") {
