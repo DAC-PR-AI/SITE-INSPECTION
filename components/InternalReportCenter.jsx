@@ -76,10 +76,10 @@ export default function InternalReportCenter({
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
         !q ||
-        i.inspectionId.toLowerCase().includes(q) ||
-        i.projectName.toLowerCase().includes(q) ||
-        i.unitNumber.toLowerCase().includes(q) ||
-        (i.customerName || "").toLowerCase().includes(q);
+        String(i.inspectionId || "").toLowerCase().includes(q) ||
+        String(i.projectName || "").toLowerCase().includes(q) ||
+        String(i.unitNumber || "").toLowerCase().includes(q) ||
+        String(i.customerName || "").toLowerCase().includes(q);
 
       return matchProj && matchUnit && matchType && matchStatus && matchReportType && matchDate && matchSearch;
     });

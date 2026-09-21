@@ -453,12 +453,18 @@ function SignatureModal({ signatory, onClose, onSave }) {
 function CustomerVerificationPhoto({ data, updateField, push }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const photo =
+  const rawPhoto =
     data?.customerVerificationPhoto ||
     data?.verificationPhoto ||
     data?.handoverPhoto ||
     (typeof data?.photos === "object" ? data?.photos?.customerVerification : null) ||
     null;
+  const photo =
+    typeof rawPhoto === "string"
+      ? rawPhoto
+      : (typeof rawPhoto?.url === "string"
+          ? rawPhoto.url
+          : (typeof rawPhoto?.dataUrl === "string" ? rawPhoto.dataUrl : null));
 
   async function handleFile(file) {
     if (!file) return;
