@@ -7,7 +7,7 @@ import {
   PenTool, RotateCcw, Save, Building2, ClipboardCheck, AlertTriangle,
   Clock, ArrowLeft, Undo2, Check, Mic, CalendarDays, Hash,
   LayoutGrid, ListChecks, Loader2, ShieldCheck, WifiOff,
-  Compass, Ruler, HardDrive, Cloud, Gauge, Lock
+  Compass, Ruler, HardDrive, Cloud, Gauge, Lock, LogOut, User
 } from "lucide-react";
 import ApprovalPortal from "./ApprovalPortal";
 import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
@@ -1028,7 +1028,7 @@ const INSPECTION_TYPES = [
 /* ---------------------------------------------------------------------- */
 /* Landing screen                                                          */
 /* ---------------------------------------------------------------------- */
-function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsError, backend, resuming }) {
+function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsError, backend, resuming, push }) {
   const [inspectionType, setInspectionType] = useState("");
   const [project, setProject] = useState("");
   const [unit, setUnit] = useState("");
@@ -1050,6 +1050,40 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [passwordError, setPasswordError] = useState("");
   const [verifyingPin, setVerifyingPin] = useState(false);
 
+  // Active Session state
+  const [activeSession, setActiveSession] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth");
+      const json = await res.json();
+      if (res.ok && json.authenticated && json.user) {
+        setActiveSession(json.user);
+      } else {
+        setActiveSession(null);
+      }
+    } catch {
+      setActiveSession(null);
+    } finally {
+      setCheckingSession(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSession();
+  }, [fetchSession]);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth", { method: "DELETE" });
+      setActiveSession(null);
+      if (push) push("Logged out successfully. Session cleared.", "info");
+    } catch {
+      if (push) push("Failed to clear session.", "error");
+    }
+  };
+
   // Portal Gateway modal states
   const [showPortalModal, setShowPortalModal] = useState(false);
   const [portalRole, setPortalRole] = useState("Admin");
@@ -1064,8 +1098,14 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [authNumber, setAuthNumber] = useState("");
   const [googleCredential, setGoogleCredential] = useState("");
 
+  const isCreatorSession = activeSession && ["admin", "technical executive"].includes((activeSession.role || "").trim().toLowerCase());
+
   const handleStartClick = () => {
     if (!inspectionType || !project || !unit) return;
+    if (isCreatorSession) {
+      onStart(project, unit, inspectionType, id, activeSession.name || "session_auth");
+      return;
+    }
     setAuthTarget("start");
     setPasswordError("");
     setAuthNumber("");
@@ -1075,6 +1115,10 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 
   const handleResumeClick = () => {
     if (!resumeId.trim()) return;
+    if (isCreatorSession) {
+      onResume(resumeId.trim());
+      return;
+    }
     setAuthTarget("resume");
     setPasswordError("");
     setAuthNumber("");
@@ -1120,6 +1164,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 
         setShowPasswordModal(false);
         setPasswordError("");
+        fetchSession();
         if (authTarget === "resume") {
           await onResume(resumeId.trim());
         } else {
@@ -1163,6 +1208,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
         setShowPortalModal(false);
         setPortalPin("");
         setPortalError("");
+        fetchSession();
         onOpenPortal({ role: data.role || portalRole, userName: data.user?.name || portalName.trim() || data.role, user: data.user });
       } else {
         setPortalError(data.error || "Authentication failed. Please verify your password in the SECOND SHEET.");
@@ -1255,6 +1301,91 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
               <div className="mb-4 flex items-start gap-2 text-xs font-body text-[var(--fail)] bg-[var(--fail-bg)] border border-red-200 rounded-xl p-3">
                 <WifiOff size={14} className="mt-0.5 shrink-0" />
                 <span>Couldn't reach the server ({projectsError}). Showing sample projects.</span>
+              </div>
+            )}
+
+            {/* Session Indicator & User Role Banner */}
+            {!checkingSession && activeSession && (
+              isCreatorSession ? (
+                <div className="mb-4 p-3 rounded-2xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between gap-2 shadow-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                      <ShieldCheck size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-mono text-emerald-800 uppercase tracking-wide font-bold leading-tight">Active Creator Session</p>
+                      <p className="text-xs font-body font-semibold text-slate-800 truncate">
+                        {activeSession.name || activeSession.email} <span className="font-normal text-emerald-700">({activeSession.role})</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="text-xs font-body font-semibold px-2.5 py-1 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 transition-colors"
+                      title="Sign out of current session"
+                    >
+                      <LogOut size={12} />
+                      <span>Log Out</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mb-4 p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-xs">
+                  <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                      <AlertTriangle size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] font-mono text-amber-800 uppercase tracking-wide font-bold">Active Role: {activeSession.role}</p>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-semibold">Cannot Create Inspections</span>
+                      </div>
+                      <p className="text-xs font-body text-amber-900 mt-0.5">
+                        Logged in as <b>{activeSession.name || activeSession.email}</b>. Only Admin & Tech Exec can submit.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthTarget("start");
+                        setShowPasswordModal(true);
+                      }}
+                      className="text-xs font-body font-bold px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-xs transition-colors"
+                    >
+                      Switch to Tech Exec
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="text-xs font-body font-semibold px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-100 flex items-center gap-1 transition-colors"
+                    >
+                      <LogOut size={12} />
+                      <span>Log Out</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {!checkingSession && !activeSession && (
+              <div className="mb-4 px-3.5 py-2 rounded-2xl bg-slate-100/70 border border-slate-200/80 flex items-center justify-between text-xs text-slate-500 font-body">
+                <span className="flex items-center gap-1.5 text-slate-600">
+                  <Lock size={13} className="text-slate-400" /> No active session
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTarget("start");
+                    setShowPasswordModal(true);
+                  }}
+                  className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+                >
+                  <User size={13} /> Sign In as Tech Exec
+                </button>
               </div>
             )}
 
@@ -2666,6 +2797,7 @@ export default function InspectionApp() {
           projectsError={projectsError}
           backend={backend}
           resuming={resuming || checkingPrevious}
+          push={push}
         />
       )}
       {screen === "portal" && (
