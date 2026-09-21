@@ -1058,6 +1058,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
   const [portalError, setPortalError] = useState("");
   const [verifyingPortalPin, setVerifyingPortalPin] = useState(false);
 
+  const [authTarget, setAuthTarget] = useState("start"); // "start" | "resume"
   const [authMode, setAuthMode] = useState("number"); // "number" | "google"
   const [authName, setAuthName] = useState("Raj");
   const [authNumber, setAuthNumber] = useState("");
@@ -1065,6 +1066,16 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
 
   const handleStartClick = () => {
     if (!inspectionType || !project || !unit) return;
+    setAuthTarget("start");
+    setPasswordError("");
+    setAuthNumber("");
+    setGoogleCredential("");
+    setShowPasswordModal(true);
+  };
+
+  const handleResumeClick = () => {
+    if (!resumeId.trim()) return;
+    setAuthTarget("resume");
     setPasswordError("");
     setAuthNumber("");
     setGoogleCredential("");
@@ -1103,13 +1114,17 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
       if (res.ok && data.ok) {
         const role = (data.role || "").trim().toLowerCase();
         if (role !== "admin" && role !== "technical executive") {
-          setPasswordError(`Access denied. Only Admin and Technical Executive may start an inspection. Your role is ${data.role}.`);
+          setPasswordError(`Access denied. Only Admin and Technical Executive may ${authTarget === "resume" ? "resume" : "start"} an inspection. Your role is ${data.role}.`);
           return;
         }
 
         setShowPasswordModal(false);
         setPasswordError("");
-        await onStart(project, unit, inspectionType, id, data.user?.name || "session_auth");
+        if (authTarget === "resume") {
+          await onResume(resumeId.trim());
+        } else {
+          await onStart(project, unit, inspectionType, id, data.user?.name || "session_auth");
+        }
       } else {
         setPasswordError(data.error || "Authentication failed. Please check your credentials against the SECOND SHEET.");
       }
@@ -1338,10 +1353,19 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                   </button>
                 ) : (
                   <div className="flex gap-2">
-                    <input value={resumeId} onChange={(e) => setResumeId(e.target.value)} placeholder="Enter Inspection ID"
-                      className="flex-1 text-xs font-mono rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-                    <button onClick={() => onResume(resumeId.trim())} disabled={!resumeId.trim() || resuming}
-                      className="text-xs font-body font-bold px-4 rounded-xl bg-blue-600 text-white disabled:bg-slate-200 hover:bg-blue-700 flex items-center gap-1">
+                    <input
+                      value={resumeId}
+                      onChange={(e) => setResumeId(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleResumeClick(); }}
+                      placeholder="Enter Inspection ID"
+                      className="flex-1 text-xs font-mono rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleResumeClick}
+                      disabled={!resumeId.trim() || resuming}
+                      className="text-xs font-body font-bold px-4 rounded-xl bg-blue-600 text-white disabled:bg-slate-200 hover:bg-blue-700 flex items-center gap-1 cursor-pointer"
+                    >
                       {resuming ? <Loader2 size={13} className="animate-spin" /> : "Load"}
                     </button>
                   </div>
@@ -1372,8 +1396,14 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                 <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="font-display font-bold text-lg text-slate-900">Start Inspection Authentication</h3>
-                <p className="font-body text-xs text-slate-500">Only Admin & Technical Executive can start</p>
+                <h3 className="font-display font-bold text-lg text-slate-900">
+                  {authTarget === "resume" ? "Resume Inspection Authentication" : "Start Inspection Authentication"}
+                </h3>
+                <p className="font-body text-xs text-slate-500">
+                  {authTarget === "resume"
+                    ? "Only Admin & Technical Executive can resume and submit inspections"
+                    : "Only Admin & Technical Executive can start"}
+                </p>
               </div>
             </div>
 
@@ -1458,7 +1488,7 @@ function LandingScreen({ onStart, onResume, onOpenPortal, projects, projectsErro
                   disabled={verifyingPin}
                   className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-2"
                 >
-                  {verifyingPin ? "Verifying..." : "Authenticate & Start"}
+                  {verifyingPin ? "Verifying..." : (authTarget === "resume" ? "Authenticate & Load Draft" : "Authenticate & Start")}
                 </button>
               </div>
             </form>
@@ -1646,6 +1676,15 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
   const [submitPinError, setSubmitPinError] = useState("");
   const [submittingWithPin, setSubmittingWithPin] = useState(false);
 
+  // Creator Re-authentication Modal (Admin / Technical Executive)
+  const [showCreatorAuthModal, setShowCreatorAuthModal] = useState(false);
+  const [creatorAuthMode, setCreatorAuthMode] = useState("number"); // "number" | "google"
+  const [creatorAuthName, setCreatorAuthName] = useState("Raj");
+  const [creatorAuthPassword, setCreatorAuthPassword] = useState("");
+  const [creatorAuthGoogleToken, setCreatorAuthGoogleToken] = useState("");
+  const [creatorAuthError, setCreatorAuthError] = useState("");
+  const [verifyingCreatorAuth, setVerifyingCreatorAuth] = useState(false);
+
   useEffect(() => {
     if (siteEngineerPasscode) {
       setActivePasscode(siteEngineerPasscode);
@@ -1727,6 +1766,13 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // If authentication is missing or has a non-creator role, open creator auth modal
+        if (res.status === 401 || res.status === 403) {
+          setShowCreatorAuthModal(true);
+          setCreatorAuthError(body.error || "Authentication as Admin or Technical Executive is required to submit.");
+          setSubmittingWithPin(false);
+          return;
+        }
         throw new Error(body.error || "Submit failed");
       }
       updateField({ status: "submitted" });
@@ -1738,6 +1784,61 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
       setSubmittingWithPin(false);
     }
   }
+
+  const handleCreatorAuthSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setVerifyingCreatorAuth(true);
+    setCreatorAuthError("");
+
+    try {
+      let payload;
+      if (creatorAuthMode === "google") {
+        if (!creatorAuthGoogleToken || !creatorAuthGoogleToken.trim()) {
+          setCreatorAuthError("Please enter your Google credential token.");
+          setVerifyingCreatorAuth(false);
+          return;
+        }
+        payload = { credential: creatorAuthGoogleToken.trim() };
+      } else {
+        if (!creatorAuthName.trim() || !creatorAuthPassword.trim()) {
+          setCreatorAuthError("Please enter both User Name/Email and Password.");
+          setVerifyingCreatorAuth(false);
+          return;
+        }
+        payload = { userName: creatorAuthName.trim(), password: creatorAuthPassword.trim() };
+      }
+
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const authData = await res.json();
+      if (!res.ok || !authData.ok) {
+        setCreatorAuthError(authData.error || "Authentication failed. Please check your credentials against the SECOND SHEET.");
+        setVerifyingCreatorAuth(false);
+        return;
+      }
+
+      const role = (authData.role || "").trim().toLowerCase();
+      if (role !== "admin" && role !== "technical executive") {
+        setCreatorAuthError(`Access denied. Only Admin and Technical Executive may create/submit inspections. Your role is ${authData.role}.`);
+        setVerifyingCreatorAuth(false);
+        return;
+      }
+
+      setShowCreatorAuthModal(false);
+      setCreatorAuthError("");
+      push(`Authenticated as ${authData.role}. Submitting inspection...`, "info");
+      setTimeout(() => {
+        handleSubmit();
+      }, 250);
+    } catch {
+      setCreatorAuthError("Authentication server error. Check connection.");
+    } finally {
+      setVerifyingCreatorAuth(false);
+    }
+  };
 
   function exportJSON() {
     const payload = {
@@ -2212,6 +2313,112 @@ function InspectionForm({ data, setData, onBack, onSubmitted, push, siteEngineer
                   className="flex-1 font-body text-xs font-bold py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 text-white flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {submittingWithPin ? <Loader2 size={14} className="animate-spin" /> : "Verify & Submit"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Creator Authentication Modal (Admin / Technical Executive) */}
+      {showCreatorAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print" onMouseDown={() => setShowCreatorAuthModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 relative animate-in fade-in zoom-in-95 duration-150" onMouseDown={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowCreatorAuthModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
+              <X size={20} />
+            </button>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shrink-0">
+                <ShieldCheck size={20} />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-lg text-slate-900">Submit Authentication</h3>
+                <p className="font-body text-xs text-slate-500">Only Admin & Technical Executive can submit</p>
+              </div>
+            </div>
+
+            {/* Auth Mode Toggle */}
+            <div className="flex gap-1 p-1 bg-slate-100 rounded-xl my-3">
+              <button
+                type="button"
+                onClick={() => { setCreatorAuthMode("number"); setCreatorAuthError(""); }}
+                className={`flex-1 text-xs font-body font-bold py-1.5 rounded-lg transition-all ${
+                  creatorAuthMode === "number" ? "bg-white shadow-xs text-blue-700" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Technical Executive
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreatorAuthMode("google"); setCreatorAuthError(""); }}
+                className={`flex-1 text-xs font-body font-bold py-1.5 rounded-lg transition-all ${
+                  creatorAuthMode === "google" ? "bg-white shadow-xs text-blue-700" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Admin (Google)
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatorAuthSubmit} className="mt-2 space-y-3">
+              {creatorAuthMode === "number" ? (
+                <>
+                  <div>
+                    <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">User Name / Email <span className="text-rose-500">*</span></label>
+                    <input
+                      type="text"
+                      value={creatorAuthName}
+                      onChange={(e) => { setCreatorAuthName(e.target.value); setCreatorAuthError(""); }}
+                      placeholder="e.g. Raj"
+                      autoFocus
+                      className="w-full text-xs font-body rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">Password <span className="text-rose-500">*</span></label>
+                    <input
+                      type="password"
+                      value={creatorAuthPassword}
+                      onChange={(e) => { setCreatorAuthPassword(e.target.value); setCreatorAuthError(""); }}
+                      placeholder="e.g. TechExec@1001"
+                      className="w-full text-xs font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Found in Column G of the SECOND SHEET (Users tab)</p>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="font-body text-xs font-semibold text-slate-700 mb-1 block">Google Credential Token <span className="text-rose-500">*</span></label>
+                  <input
+                    type="password"
+                    value={creatorAuthGoogleToken}
+                    onChange={(e) => { setCreatorAuthGoogleToken(e.target.value); setCreatorAuthError(""); }}
+                    placeholder="Enter Google ID token"
+                    autoFocus
+                    className="w-full text-xs font-mono rounded-xl border border-slate-200 p-2.5 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                </div>
+              )}
+
+              {creatorAuthError && (
+                <p className="font-body text-xs text-rose-600 mt-1.5 flex items-start gap-1 p-2 bg-rose-50 rounded-lg border border-rose-100">
+                  <AlertTriangle size={14} className="shrink-0 text-rose-500 mt-0.5" /> <span>{creatorAuthError}</span>
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreatorAuthModal(false)}
+                  className="font-body text-xs font-semibold px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={verifyingCreatorAuth}
+                  className="font-body text-xs font-bold px-5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:bg-slate-300 flex items-center gap-2"
+                >
+                  {verifyingCreatorAuth ? "Authenticating..." : "Authenticate & Submit"}
                 </button>
               </div>
             </form>
