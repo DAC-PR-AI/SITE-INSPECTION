@@ -647,8 +647,27 @@ export default function InspectionWorkspace({
                   )}
                 </div>
 
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2 text-xs text-slate-600">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3 text-xs text-slate-600">
+                  <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-lg border border-slate-200">
+                    <div>
+                      <span className="font-bold text-slate-800 block text-xs">Interior Works Completion Duration</span>
+                      <span className="text-[11px] text-slate-500">Allowed working hours: 9:00 AM to 5:00 PM</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={data.interiorDays || ""}
+                        onChange={(e) => updateField({ interiorDays: e.target.value })}
+                        placeholder="30"
+                        className="w-16 px-2 py-1 text-center font-bold text-xs border rounded-lg border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-700 bg-blue-50/30"
+                      />
+                      <span className="font-bold text-slate-700 text-xs">Days</span>
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer pt-1">
                     <input
                       type="checkbox"
                       checked={!!data.declarationChecked}

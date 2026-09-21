@@ -163,7 +163,23 @@ export default function JointInspectionPrintDoc({ data, inspection }) {
   const unitNoStr = docData.unitNumber
     ? docData.unitNumber.toUpperCase()
     : "......................";
-  const interiorDaysStr = docData.interiorDays || "............";
+
+  const rawDays =
+    docData.interiorDays !== undefined && docData.interiorDays !== null && String(docData.interiorDays).trim() !== ""
+      ? String(docData.interiorDays).trim()
+      : (docData.days !== undefined && docData.days !== null && String(docData.days).trim() !== ""
+          ? String(docData.days).trim()
+          : (docData.interiorWorkDays !== undefined && docData.interiorWorkDays !== null && String(docData.interiorWorkDays).trim() !== ""
+              ? String(docData.interiorWorkDays).trim()
+              : ""));
+  const interiorDaysStr = rawDays || "............";
+
+  const verificationPhotoUrl =
+    docData.customerVerificationPhoto ||
+    docData.verificationPhoto ||
+    docData.handoverPhoto ||
+    (typeof docData.photos === "object" ? docData.photos?.customerVerification : "") ||
+    "";
 
   return (
     <div className="dac-paper-form bg-white text-black font-sans box-border w-full max-w-[820px] mx-auto p-4 sm:p-6 print:p-0 print:max-w-none">
@@ -318,14 +334,14 @@ export default function JointInspectionPrintDoc({ data, inspection }) {
       </div>
 
       {/* Customer Verification Photo */}
-      {docData.customerVerificationPhoto && (
+      {verificationPhotoUrl && (
         <div className="border-2 border-black p-2 mb-2 flex items-center justify-between text-[9px] sm:text-[10px]">
           <div>
             <p className="font-bold uppercase mb-0.5">CUSTOMER VERIFICATION PHOTO</p>
             <p className="text-[8.5px] sm:text-[9px] text-gray-700">Verified proof of executive & customer presence on-site.</p>
           </div>
           <div className="h-16 w-24 border border-black overflow-hidden flex items-center justify-center bg-gray-50 shrink-0 ml-2">
-            <img src={docData.customerVerificationPhoto} alt="Customer Verification" className="h-full w-full object-cover" />
+            <img src={verificationPhotoUrl} alt="Customer Verification" className="h-full w-full object-cover" />
           </div>
         </div>
       )}
