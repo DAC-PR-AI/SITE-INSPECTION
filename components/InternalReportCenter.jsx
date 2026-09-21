@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import {
   FileText, Filter, Printer, Download, Eye, CheckCircle2,
   XCircle, Clock, AlertTriangle, Layers, Building2, Calendar,
-  ShieldCheck, RefreshCw, ChevronRight, FileSpreadsheet, Search
+  ShieldCheck, RefreshCw, ChevronRight, FileSpreadsheet, Search, X
 } from "lucide-react";
 import JointInspectionPrintDoc from "./JointInspectionPrintDoc";
 
@@ -359,10 +359,37 @@ export default function InternalReportCenter({
 
       {/* ─── PRINT / PDF MODAL PREVIEW ───────────────────────────────────── */}
       {selectedInspectionForPrint && (
-        <JointInspectionPrintDoc
-          inspection={selectedInspectionForPrint}
-          onClose={() => setSelectedInspectionForPrint(null)}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden my-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="font-display font-bold text-base text-slate-900">Official Document Print Preview</h3>
+              <button
+                onClick={() => setSelectedInspectionForPrint(null)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
+              <JointInspectionPrintDoc inspection={selectedInspectionForPrint} />
+            </div>
+            <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3">
+              <button
+                onClick={() => setSelectedInspectionForPrint(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-md flex items-center gap-1.5"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print / Save PDF</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

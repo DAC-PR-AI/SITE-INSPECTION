@@ -30,7 +30,9 @@ export default function DefectsAndPhotosManager({
       const cells = inspec.cells || {};
       Object.entries(cells).forEach(([key, cell]) => {
         if (cell.status === "fail") {
-          const [itemIdStr, areaKey] = key.split("__");
+          const parts = key.includes("__") ? key.split("__") : key.split("_");
+          const itemIdStr = parts[0] || "0";
+          const areaKey = parts.slice(1).join("_") || "area";
           const itemId = parseInt(itemIdStr, 10);
 
           list.push({
@@ -84,7 +86,13 @@ export default function DefectsAndPhotosManager({
     const targetInspections = currentInspection ? [currentInspection] : inspections;
 
     targetInspections.forEach((inspec) => {
-      if (inspec.customerVerificationPhoto) {
+      const verifPhoto =
+        inspec.customerVerificationPhoto ||
+        inspec.verificationPhoto ||
+        inspec.handoverPhoto ||
+        (typeof inspec.photos === "object" ? inspec.photos?.customerVerification : null);
+
+      if (verifPhoto) {
         list.push({
           photoId: `P-VERIF-${inspec.inspectionId}`,
           inspectionId: inspec.inspectionId,
@@ -92,7 +100,7 @@ export default function DefectsAndPhotosManager({
           unitNumber: inspec.unitNumber,
           associatedType: "Verification",
           associatedLabel: "Customer Verification",
-          url: inspec.customerVerificationPhoto,
+          url: verifPhoto,
           status: "Uploaded", // Uploading | Uploaded | Failed | Processing
           createdAt: inspec.updatedAt || new Date().toISOString(),
         });
@@ -100,7 +108,9 @@ export default function DefectsAndPhotosManager({
 
       const cells = inspec.cells || {};
       Object.entries(cells).forEach(([key, cell]) => {
-        const [itemIdStr, areaKey] = key.split("__");
+        const parts = key.includes("__") ? key.split("__") : key.split("_");
+        const itemIdStr = parts[0] || "0";
+        const areaKey = parts.slice(1).join("_") || "area";
         (cell.photos || []).forEach((p, pIdx) => {
           list.push({
             photoId: p.id || `P-${inspec.inspectionId}-${key}-${pIdx}`,
